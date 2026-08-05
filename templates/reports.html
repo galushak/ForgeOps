@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}Reports · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head"><div><span class="eyebrow">BUSINESS INSIGHTS</span><h1>Reports</h1><p>Cash-based operating performance, exact tax collected, conservative reserves, and project profitability.</p></div><a class="btn btn-primary" href="{% url 'report_pdf' %}?{{ request.GET.urlencode }}">Download PDF</a></div>
+<form class="panel filter-bar" method="get" data-report-filters>
+  <div class="field"><label for="range">Report type</label><select class="form-control" id="range" name="range"><option value="month" {% if range_kind == 'month' %}selected{% endif %}>Month</option><option value="quarter" {% if range_kind == 'quarter' %}selected{% endif %}>NYS Sales Tax Quarter</option><option value="year" {% if range_kind == 'year' %}selected{% endif %}>Year</option></select></div>
+  <div class="field" data-report-field="month"{% if range_kind != 'month' %} hidden{% endif %}><label for="month">Month</label><select class="form-control" id="month" name="month">{% for value,label in month_choices %}<option value="{{ value }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="field" data-report-field="quarter"{% if range_kind != 'quarter' %} hidden{% endif %}><label for="quarter">NYS quarter</label><select class="form-control" id="quarter" name="quarter"><option value="1" {% if selected_quarter == 1 %}selected{% endif %}>Mar 1 – May 31</option><option value="2" {% if selected_quarter == 2 %}selected{% endif %}>Jun 1 – Aug 31</option><option value="3" {% if selected_quarter == 3 %}selected{% endif %}>Sep 1 – Nov 30</option><option value="4" {% if selected_quarter == 4 %}selected{% endif %}>Dec 1 – Feb 28/29</option></select></div>
+  <div class="field"><label for="year">Year</label><input class="form-control" id="year" name="year" type="number" min="2000" max="2100" value="{{ year }}"></div>
+  <button class="btn btn-secondary" type="submit">Run report</button>
+</form>
+<section class="report-banner"><div><span class="eyebrow">{{ range_label }}</span><h2>Business performance</h2><p>Range: {{ start|date:'Y-m-d' }} through {{ end|date:'Y-m-d' }}{% if filing_due %} · Filing due {{ filing_due|date:'M j, Y' }}{% endif %}</p></div><div class="tax-badge">{{ business_profile.sales_tax_rate }}%<small>sales tax</small></div></section>
+
+<div class="grid grid-4">
+  <section class="panel metric"><span class="metric-label">Revenue</span><strong>{{ revenue|currency }}</strong><small>Payments excluding collected tax</small></section>
+  <section class="panel metric"><span class="metric-label">Total expenses</span><strong>{{ total_expenses|currency }}</strong><small>Project + business expenses</small></section>
+  <section class="panel metric"><span class="metric-label">Project expenses</span><strong>{{ project_expenses|currency }}</strong><small>Project costs and COGS</small></section>
+  <section class="panel metric"><span class="metric-label">Business expenses</span><strong>{{ business_expenses|currency }}</strong><small>General operating costs</small></section>
+  <section class="panel metric"><span class="metric-label">Net income</span><strong>{{ net_income|currency }}</strong><small>Before income-tax reserve</small></section>
+  <section class="panel metric metric-positive"><span class="metric-label">Estimated after-tax profit</span><strong>{{ estimated_after_tax_profit|currency }}</strong><small>After {{ business_profile.income_tax_reserve_rate }}% planning estimate</small></section>
+  <section class="panel metric"><span class="metric-label">Invoice total</span><strong>{{ invoice_total|currency }}</strong><small>{{ invoice_count }} issued invoice{{ invoice_count|pluralize }}</small></section>
+  <section class="panel metric"><span class="metric-label">Outstanding</span><strong>{{ outstanding|currency }}</strong><small>Open receivables as of period end</small></section>
+  <section class="panel metric"><span class="metric-label">Exact sales-tax reserve</span><strong>{{ exact_sales_reserve|currency }}</strong><small>Collected less remitted</small></section>
+  <section class="panel metric"><span class="metric-label">Conservative reserve</span><strong>{{ conservative_sales_reserve|currency }}</strong><small>Includes {{ sales_tax_cushion|currency }} safety cushion</small></section>
+  <section class="panel metric"><span class="metric-label">Income-tax reserve</span><strong>{{ income_tax_remaining|currency }}</strong><small>{{ income_tax_paid|currency }} already paid</small></section>
+  <section class="panel metric"><span class="metric-label">Total tax remaining</span><strong>{{ total_tax_remaining|currency }}</strong><small>{{ total_tax_paid|currency }} recorded payments</small></section>
+</div>
+
+<div class="grid grid-2" style="margin-top:16px">
+  <section class="panel chart-box"><div class="panel-head" style="padding:0 0 15px;border:0"><h2>Revenue vs expenses</h2></div><div class="chart-row"><span>Revenue</span><div class="chart-track"><div class="chart-bar" style="width:{{ revenue_chart_width }}%"></div></div><span class="chart-value">{{ revenue|currency }}</span></div><div class="chart-row"><span>Expenses</span><div class="chart-track"><div class="chart-bar mint" style="width:{{ expense_chart_width }}%"></div></div><span class="chart-value">{{ total_expenses|currency }}</span></div></section>
+  <section class="panel chart-box"><div class="panel-head" style="padding:0 0 15px;border:0"><h2>Income by category</h2></div>{% for row in income_by_category %}<div class="chart-row"><span>{{ row.category__name|truncatechars:24 }}</span><div class="chart-track"><div class="chart-bar" style="width:{% widthratio row.total revenue 100 %}%"></div></div><span class="chart-value">{{ row.total|currency }}</span></div>{% empty %}<div class="empty">No categorized income.</div>{% endfor %}</section>
+</div>
+
+<div class="grid grid-2">
+  <section><div class="section-title"><h2>Expense categories</h2></div><div class="panel"><div class="list">{% for row in project_expense_by_category %}<div class="list-row"><span><strong>{{ row.category__name }}</strong><small>Project expense</small></span><strong>{{ row.total|currency }}</strong></div>{% endfor %}{% for row in business_expense_by_category %}<div class="list-row"><span><strong>{{ row.category__name }}</strong><small>Business expense</small></span><strong>{{ row.total|currency }}</strong></div>{% empty %}{% if not project_expense_by_category %}<div class="empty">No expense activity.</div>{% endif %}{% endfor %}</div></div></section>
+  <section><div class="section-title"><h2>Project profitability</h2></div><div class="panel"><div class="list">{% for row in project_profitability %}<a class="list-row" href="{% url 'project_detail' row.project.pk %}"><span><strong>{{ row.project.name }}</strong><small>{{ row.collected|currency }} collected · {{ row.costs|currency }} costs</small></span><strong>{{ row.profit|currency }}</strong></a>{% empty %}<div class="empty">No project activity in this period.</div>{% endfor %}</div></div></section>
+</div>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}{{ invoice }} · ForgeOps{% endblock %}
+{% block content %}
+<div class="detail-hero">
+  <div><a class="back-link" href="{% url 'project_detail' invoice.project.pk %}">← {{ invoice.project.name }}</a><span class="status {{ invoice.status|status_class }}">{% if invoice.is_overdue %}Overdue{% else %}{{ invoice.get_status_display }}{% endif %}</span><h1>{{ invoice.name }}</h1><p>{{ invoice.invoice_number|default:'Draft — number assigned on issue' }}{% if invoice.due_date %} · Due {{ invoice.due_date|date:'M j, Y' }}{% endif %}</p></div>
+  <div class="head-actions"><a class="btn btn-secondary" href="{% url 'invoice_pdf' invoice.pk %}">{% if invoice.is_issued %}Download PDF{% else %}Preview PDF{% endif %}</a>{% if not invoice.is_issued %}<form method="post" action="{% url 'invoice_issue' invoice.pk %}" data-confirm="Issue this invoice and assign its permanent number?">{% csrf_token %}<button class="btn btn-primary" type="submit">Issue invoice</button></form>{% endif %}</div>
+</div>
+
+<div class="summary-strip"><div><small>Invoice total</small><strong>{{ invoice.total|currency }}</strong></div><div><small>Payments</small><strong>{{ invoice.payments_total|currency }}</strong></div><div><small>Balance</small><strong>{{ invoice.balance|currency }}</strong></div><div><small>Terms</small><strong>{{ invoice.get_payment_terms_display }}</strong></div></div>
+
+{% if invoice.is_issued %}<div class="head-actions document-status-actions">{% if invoice.balance > 0 %}<a class="btn btn-primary" href="{% url 'payment_create' 'invoice' invoice.pk %}">Record payment</a>{% endif %}{% if invoice.status != 'void' and invoice.status != 'paid' %}<form method="post" action="{% url 'invoice_void' invoice.pk %}" data-confirm="Void this invoice?">{% csrf_token %}<button class="btn btn-danger" type="submit">Void</button></form>{% endif %}</div>{% endif %}
+
+{% if invoice_form %}<form id="invoice-details-form" method="post">{% csrf_token %}</form>
+<section class="panel editor-section document-editor" data-invoice-editor>
+  <div class="panel-head"><div><h2>Invoice setup</h2><small class="muted">The due date is calculated automatically when the invoice is issued.</small></div><button class="btn btn-primary btn-small" type="submit" form="invoice-details-form">Save invoice</button></div>
+  <div class="editor-grid editor-grid-3">
+    {% include 'generic/field.html' with field=invoice_form.name %}
+    {% include 'generic/field.html' with field=invoice_form.payment_terms %}
+    <div data-custom-due-date>{% include 'generic/field.html' with field=invoice_form.due_date %}</div>
+  </div>
+  {% for error in invoice_form.non_field_errors %}<div class="field-error editor-error">{{ error }}</div>{% endfor %}
+</section>
+{% endif %}
+
+<section class="panel document-lines">
+  <div class="panel-head"><div><h2>Labor</h2><small class="muted">Add new labor here or import existing uninvoiced project labor.</small></div>{% if not invoice.is_issued %}<a class="btn btn-primary btn-small" href="{% url 'invoice_labor_create' invoice.pk %}">Add labor</a>{% endif %}</div>
+  <div class="table-wrap"><table class="data-table"><thead><tr><th>Work performed</th><th>Category</th><th class="number">Hours</th><th class="number">Amount</th>{% if not invoice.is_issued %}<th class="number">Actions</th>{% endif %}</tr></thead><tbody>{% for entry in invoice.labor_entries.all %}<tr><td>{% if not invoice.is_issued %}<a href="{% url 'labor_edit' invoice.project.pk entry.pk %}"><strong>{{ entry.work_date|date:'M j, Y' }}</strong></a>{% else %}<strong>{{ entry.work_date|date:'M j, Y' }}</strong>{% endif %}<br><small>{{ entry.description }}</small></td><td><small>{{ entry.category|default:'Uncategorized' }}</small></td><td class="number">{{ entry.effective_billable_hours }}</td><td class="number">{{ entry.billable_amount|currency }}</td>{% if not invoice.is_issued %}<td><div class="row-actions"><a class="btn btn-quiet btn-small" href="{% url 'labor_edit' invoice.project.pk entry.pk %}">Edit</a><form method="post" action="{% url 'invoice_remove_labor' invoice.pk entry.pk %}">{% csrf_token %}<button class="btn btn-secondary btn-small" type="submit">Remove</button></form><form method="post" action="{% url 'labor_delete' invoice.project.pk entry.pk %}" data-confirm="Delete this labor entry from the project?">{% csrf_token %}<button class="btn btn-danger btn-small" type="submit">Delete</button></form></div></td>{% endif %}</tr>{% empty %}<tr><td colspan="{% if invoice.is_issued %}4{% else %}5{% endif %}" class="empty">No labor attached.</td></tr>{% endfor %}{% if invoice.minimum_adjustment_hours %}<tr><td>Project labor minimum adjustment</td><td>Client Labor</td><td class="number">{{ invoice.minimum_adjustment_hours }}</td><td class="number">—</td>{% if not invoice.is_issued %}<td></td>{% endif %}</tr>{% endif %}</tbody></table></div>
+  {% if not invoice.is_issued and uninvoiced_labor %}<div class="panel-body import-labor"><h3>Import project labor</h3><form method="post" action="{% url 'invoice_assign_labor' invoice.pk %}" class="stack-form">{% csrf_token %}{% for entry in uninvoiced_labor %}<label class="remember-row"><input type="checkbox" name="labor_ids" value="{{ entry.pk }}"> {{ entry.work_date|date:'M j' }} · {{ entry.description|truncatechars:65 }} · {{ entry.effective_billable_hours }} hrs</label>{% endfor %}<button class="btn btn-secondary btn-small" type="submit">Add selected labor</button></form></div>{% endif %}
+</section>
+
+<section class="panel document-lines">
+  <div class="panel-head"><div><h2>Additional items</h2><small class="muted">Select the income category on every material or service line.</small></div>{% if not invoice.is_issued %}<a class="btn btn-primary btn-small" href="{% url 'invoice_item_create' invoice.pk %}">Add item</a>{% endif %}</div>
+  <div class="table-wrap"><table class="data-table"><thead><tr><th>Description</th><th>Category</th><th>Qty</th><th class="number">Unit</th><th class="number">Total</th>{% if not invoice.is_issued %}<th class="number">Actions</th>{% endif %}</tr></thead><tbody>{% for item in invoice.items.all %}<tr><td>{% if not invoice.is_issued %}<a href="{% url 'invoice_item_edit' invoice.pk item.pk %}"><strong>{{ item.description }}</strong></a>{% else %}<strong>{{ item.description }}</strong>{% endif %}</td><td><small>{{ item.income_category|default:'Uncategorized' }}</small></td><td>{{ item.quantity }}</td><td class="number">{{ item.unit_price|currency }}</td><td class="number">{{ item.line_total|currency }}</td>{% if not invoice.is_issued %}<td><div class="row-actions"><a class="btn btn-quiet btn-small" href="{% url 'invoice_item_edit' invoice.pk item.pk %}">Edit</a><form method="post" action="{% url 'invoice_item_delete' invoice.pk item.pk %}" data-confirm="Delete this invoice item?">{% csrf_token %}<button class="btn btn-danger btn-small" type="submit">Delete</button></form></div></td>{% endif %}</tr>{% empty %}<tr><td colspan="{% if invoice.is_issued %}5{% else %}6{% endif %}" class="empty">No additional items.</td></tr>{% endfor %}</tbody></table></div>
+  {% if not invoice.is_issued %}<div class="panel-body"><a class="btn btn-secondary btn-small" href="{% url 'invoice_surcharge_create' invoice.pk %}">Add vendor surcharge</a></div>{% endif %}
+</section>
+
+{% if invoice.surcharges.exists %}<section class="panel compact-panel"><div class="panel-head"><h2>Vendor surcharges</h2></div><div class="list">{% for fee in invoice.surcharges.all %}<div class="list-row"><span>{% if not invoice.is_issued %}<a href="{% url 'invoice_surcharge_edit' invoice.pk fee.pk %}"><strong>{{ fee.label }}</strong></a>{% else %}<strong>{{ fee.label }}</strong>{% endif %}</span><div class="list-row-right"><strong>{{ fee.amount|currency }}</strong>{% if not invoice.is_issued %}<form method="post" action="{% url 'invoice_surcharge_delete' invoice.pk fee.pk %}" data-confirm="Delete this vendor surcharge?">{% csrf_token %}<button class="btn btn-danger btn-small" type="submit">Delete</button></form>{% endif %}</div></div>{% endfor %}</div></section>{% endif %}
+
+<div class="document-total document-total-inline">
+  <div class="total-row"><span>Labor</span><strong>{{ invoice.labor_subtotal|currency }}</strong></div>
+  <div class="total-row"><span>Labor sales tax{% if not invoice.labor_taxable %} (legacy non-taxable){% endif %}</span><strong>{{ invoice.labor_tax|currency }}</strong></div>
+  {% if invoice.materials_subtotal %}<div class="total-row"><span>Additional items</span><strong>{{ invoice.materials_subtotal|currency }}</strong></div>{% endif %}
+  {% for fee in invoice.surcharges.all %}<div class="total-row"><span>{{ fee.label }}</span><strong>{{ fee.amount|currency }}</strong></div>{% endfor %}
+  {% if invoice.materials_tax %}<div class="total-row"><span>Materials sales tax</span><strong>{{ invoice.materials_tax|currency }}</strong></div>{% endif %}
+  {% if invoice.administrative_fee %}<div class="total-row"><span>Administrative fee</span><strong>{{ invoice.administrative_fee|currency }}</strong></div>{% endif %}
+  {% for credit in invoice.credits.all %}<div class="total-row"><span>{{ credit.label }}</span><strong>−{{ credit.amount|currency }}</strong></div>{% endfor %}
+  <div class="total-row grand"><span>Invoice total</span><strong>{{ invoice.total|currency }}</strong></div><div class="total-row due-now"><span>Amount due</span><strong>{{ invoice.balance|currency }}</strong></div>
+</div>
+{% if not invoice.is_issued %}<div class="head-actions document-credit-actions"><a class="btn btn-secondary btn-small" href="{% url 'invoice_credit_create' invoice.pk %}">Add credit/discount</a>{% if available_credits %}<a class="btn btn-primary btn-small" href="{% url 'apply_project_credit' invoice.pk %}">Apply project credit</a>{% endif %}</div>{% endif %}
+
+{% if invoice_form %}
+<section class="panel editor-section document-editor notes-terms-panel">
+  <div class="panel-head"><div><h2>Terms and notes</h2><small class="muted">Only selected terms and client notes appear on the client document.</small></div></div>
+  <div class="editor-grid editor-grid-single">
+    <details class="selection-menu field-wide">
+      <summary>Selected terms <span>{{ invoice.selected_terms.count }} currently selected</span></summary>
+      <div class="selection-menu-panel"><label>{{ invoice_form.selected_terms.label }}</label>{{ invoice_form.selected_terms }}{% for error in invoice_form.selected_terms.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
+    </details>
+    {% include 'generic/field.html' with field=invoice_form.client_notes %}
+    {% include 'generic/field.html' with field=invoice_form.internal_notes %}
+  </div>
+</section>
+<div class="head-actions workspace-actions document-save-actions"><button class="btn btn-primary" type="submit" form="invoice-details-form">Save invoice</button></div>
+{% endif %}
+
+<div class="grid grid-2 document-support-grid">
+  <div><div class="section-title"><h2>Payments</h2>{% if invoice.is_issued and invoice.balance > 0 %}<a class="btn btn-primary btn-small" href="{% url 'payment_create' 'invoice' invoice.pk %}">Record payment</a>{% endif %}</div><section class="panel"><div class="list">{% for payment in invoice.payments.all %}<div class="list-row"><span><strong>{{ payment.payment_date|date:'M j, Y' }} · {{ payment.amount|currency }}</strong><small>{{ payment.notes }}</small><details><summary class="muted">Accounting breakdown</summary>{% for allocation in payment.allocations.all %}<small>{{ allocation.label }} — {{ allocation.amount|currency }}</small>{% endfor %}</details></span><a class="btn btn-secondary btn-small" href="{% url 'attachment_add' 'payment' payment.pk %}">Receipts</a></div>{% empty %}<div class="empty">No payments recorded.</div>{% endfor %}</div></section></div>
+  <div><div class="section-title"><h2>Files</h2><a class="btn btn-secondary btn-small" href="{% url 'attachment_add' 'invoice' invoice.pk %}">Upload</a></div><section class="panel"><div class="list">{% for file in invoice.attachments.all %}<div class="list-row"><span><strong>{{ file.label|default:file.file.name|file_basename }}</strong><small>{{ file.get_kind_display }} · {{ file.get_visibility_display }}</small></span><a class="btn btn-secondary btn-small" href="{{ file.file.url }}">Open</a></div>{% empty %}<div class="empty">No files attached.</div>{% endfor %}</div></section></div>
+</div>
+{% if invoice.is_issued %}<div class="section-title"><h2>Selected terms</h2></div><section class="panel panel-pad">{% for term in invoice.term_snapshots.all %}<p><strong>{{ term.name }}</strong><br><span class="muted">{{ term.body }}</span></p>{% endfor %}</section>{% endif %}
+{% endblock %}

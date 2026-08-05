@@ -1,0 +1,13 @@
+services:
+  forgeops:
+    build: .
+    container_name: forgeops
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${FORGEOPS_PORT:-8080}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./media:/app/media
+      - ./backups:/app/backups

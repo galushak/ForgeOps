@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}{{ project.name }} · ForgeOps{% endblock %}
+{% block content %}
+<div class="detail-hero">
+  <div><a class="back-link" href="{% url 'client_detail' project.client.pk %}">← {{ project.client.name }}</a><span class="status {{ project.status|status_class }}">{{ project.get_status_display }}</span><h1>{{ project.name }}</h1><p>{{ project.project_number }}{% if project.service_address %} · {{ project.service_address.label }}{% endif %}</p></div>
+  <div class="head-actions">
+    {% if not project.is_support_project %}
+      {% if project.status == 'completed' %}
+        <form method="post" action="{% url 'project_reopen' project.pk %}" data-confirm="Reopen this project and move it back to In Progress?">{% csrf_token %}<button class="btn btn-secondary" type="submit">Reopen project</button></form>
+      {% else %}
+        <form method="post" action="{% url 'project_complete' project.pk %}" data-confirm="Mark this project complete? It will leave active project queues.">{% csrf_token %}<button class="btn btn-primary" type="submit">Mark complete</button></form>
+      {% endif %}
+    {% endif %}
+    <a class="btn btn-secondary" href="{% url 'project_edit' project.pk %}">Edit</a><a class="btn btn-primary" href="{% url 'labor_create' project.pk %}">Add labor</a>
+  </div>
+</div>
+<div class="summary-strip"><div><small>Cash received</small><strong>{{ project.payments_total|currency }}</strong></div><div><small>Project expenses</small><strong>{{ project.expenses_total|currency }}</strong></div><div><small>Cash profit</small><strong>{{ project.cash_profit|currency }}</strong></div><div><small>Available credit</small><strong>{{ available_credit|currency }}</strong></div></div>
+
+<div class="section-title"><h2>Quotes</h2><form method="post" action="{% url 'quote_create' project.pk %}">{% csrf_token %}<button class="btn btn-primary btn-small" type="submit">New quote</button></form></div>
+{% for group in project.quote_groups.all %}<section class="panel quote-set-panel"><div class="panel-head"><div><h3>{{ group.name }}</h3><small class="muted">Related quote set · {{ group.quotes.count }} option{{ group.quotes.count|pluralize }}</small></div></div><div class="list">{% for quote in group.quotes.all %}<a class="list-row" href="{% url 'quote_detail' quote.pk %}"><span><strong>{{ quote.name }}</strong><small>{{ quote.quote_number|default:'Draft' }} · {{ quote.estimated_total|currency }} estimate</small></span><span class="status {{ quote.status|status_class }}">{{ quote.get_status_display }}</span></a>{% endfor %}</div></section>{% endfor %}
+{% if ungrouped_quotes %}<section class="panel"><div class="list">{% for quote in ungrouped_quotes %}<a class="list-row" href="{% url 'quote_detail' quote.pk %}"><span><strong>{{ quote.name }}</strong><small>{{ quote.quote_number|default:'Draft' }} · {{ quote.estimated_total|currency }} estimate</small></span><span class="status {{ quote.status|status_class }}">{{ quote.get_status_display }}</span></a>{% endfor %}</div></section>{% elif not project.quote_groups.exists %}<section class="panel"><div class="empty">No quotes yet.</div></section>{% endif %}
+
+<div class="section-title"><h2>Invoices</h2><form method="post" action="{% url 'invoice_create' project.pk %}">{% csrf_token %}<button class="btn btn-primary btn-small" type="submit">New invoice</button></form></div>
+<section class="panel"><div class="list">{% for invoice in project.invoices.all %}<a class="list-row" href="{% url 'invoice_detail' invoice.pk %}"><span><strong>{{ invoice.name }}</strong><small>{{ invoice.invoice_number|default:'Draft' }} · {{ invoice.total|currency }}</small></span><span class="status {{ invoice.status|status_class }}">{% if invoice.is_overdue %}Overdue{% else %}{{ invoice.get_status_display }}{% endif %}</span></a>{% empty %}<div class="empty">No invoices yet.</div>{% endfor %}</div></section>
+
+<div class="grid grid-2">
+  <div><div class="section-title"><h2>Labor</h2><a class="btn btn-secondary btn-small" href="{% url 'labor_create' project.pk %}">Add labor</a></div><section class="panel"><div class="list">{% for entry in project.labor_entries.all %}<a class="list-row" href="{% url 'labor_edit' project.pk entry.pk %}"><span><strong>{{ entry.work_date|date:'M j' }} · {{ entry.actual_hours|floatformat:2 }} actual hrs</strong><small>{{ entry.description|truncatechars:90 }}{% if entry.invoice %} · {{ entry.invoice }}{% else %} · Uninvoiced{% endif %}</small></span><span><strong>{{ entry.effective_billable_hours|floatformat:2 }}</strong><small>{% if entry.billable %}billable{% else %}nonbillable{% endif %}</small></span></a>{% empty %}<div class="empty">No labor recorded.</div>{% endfor %}</div></section></div>
+  <div><div class="section-title"><h2>Expenses</h2><a class="btn btn-secondary btn-small" href="{% url 'expense_create' 'project' %}?client={{ project.client_id }}&project={{ project.pk }}">Add expense</a></div><section class="panel"><div class="list">{% for expense in project.expenses.all %}<div class="list-row"><span><strong>{{ expense.vendor|default:'No vendor' }}</strong><small>{{ expense.expense_date|date:'M j' }} · {{ expense.category.name }} · {{ expense.description|truncatechars:80 }}</small></span><strong>{{ expense.amount|currency }}</strong></div>{% empty %}<div class="empty">No project expenses.</div>{% endfor %}</div></section></div>
+</div>
+
+<div class="grid grid-2">
+  <div><div class="section-title"><h2>Notes and files</h2><div class="head-actions"><a class="btn btn-secondary btn-small" href="{% url 'project_note_add' project.pk %}">Add note</a><a class="btn btn-secondary btn-small" href="{% url 'attachment_add' 'project' project.pk %}">Upload files</a></div></div><section class="panel"><div class="list">{% for note in project.record_notes.all %}<div class="list-row"><span><strong>{{ note.get_visibility_display }}</strong><small>{{ note.body }}</small></span><small>{{ note.created_at|date:'M j' }}</small></div>{% endfor %}{% for file in project.attachments.all %}<div class="list-row"><span><strong>{{ file.label|default:file.file.name|file_basename }}</strong><small>{{ file.get_kind_display }} · {{ file.get_visibility_display }}</small></span><a class="btn btn-secondary btn-small" href="{{ file.file.url }}">Open</a></div>{% empty %}{% if not project.record_notes.exists %}<div class="empty">No notes or files.</div>{% endif %}{% endfor %}</div></section></div>
+  <div><div class="section-title"><h2>Project packets</h2></div><section class="panel panel-pad"><p class="muted">Generate a complete printable record. Internal packets contain financial details and receipt pages. Client-safe packets contain approved quotes, invoices, payment history, and client-facing information.</p><div class="head-actions" style="justify-content:flex-start"><a class="btn btn-primary" href="{% url 'project_packet' project.pk 'internal' %}">Internal packet PDF</a><a class="btn btn-secondary" href="{% url 'project_packet' project.pk 'client' %}">Client-safe packet PDF</a></div></section></div>
+</div>
+
+<div class="section-title"><h2>Activity</h2></div><section class="panel"><div class="list">{% for activity in project.activity.all %}<div class="list-row"><span><strong>{{ activity.title }}</strong><small>{{ activity.details }}</small></span><small>{{ activity.occurred_at|date:'M j, Y g:i A' }}</small></div>{% empty %}<div class="empty">No activity recorded.</div>{% endfor %}</div></section>
+{% endblock %}

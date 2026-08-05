@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}Search · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head compact"><div><span class="eyebrow">GLOBAL SEARCH</span><h1>{% if query %}Results for “{{ query }}”{% else %}Search ForgeOps{% endif %}</h1></div></div>
+{% if query %}
+<div class="grid grid-2">
+  <section class="panel"><div class="panel-head"><h2>Clients</h2></div><div class="list">{% for item in clients %}<a class="list-row" href="{% url 'client_detail' item.pk %}"><span><strong>{{ item.name }}</strong><small>{{ item.primary_contact }} {{ item.email }}</small></span><span>→</span></a>{% empty %}<div class="empty">No clients found.</div>{% endfor %}</div></section>
+  <section class="panel"><div class="panel-head"><h2>Projects</h2></div><div class="list">{% for item in projects %}<a class="list-row" href="{% url 'project_detail' item.pk %}"><span><strong>{{ item.name }}</strong><small>{{ item.client.name }} · {{ item.project_number }}</small></span><span>→</span></a>{% empty %}<div class="empty">No projects found.</div>{% endfor %}</div></section>
+  <section class="panel"><div class="panel-head"><h2>Quotes</h2></div><div class="list">{% for item in quotes %}<a class="list-row" href="{% url 'quote_detail' item.pk %}"><span><strong>{{ item.quote_number|default:'Draft quote' }}</strong><small>{{ item.name }}</small></span><span>→</span></a>{% empty %}<div class="empty">No quotes found.</div>{% endfor %}</div></section>
+  <section class="panel"><div class="panel-head"><h2>Invoices</h2></div><div class="list">{% for item in invoices %}<a class="list-row" href="{% url 'invoice_detail' item.pk %}"><span><strong>{{ item.invoice_number|default:'Draft invoice' }}</strong><small>{{ item.name }}</small></span><span>→</span></a>{% empty %}<div class="empty">No invoices found.</div>{% endfor %}</div></section>
+</div>
+{% else %}<section class="panel empty"><strong>Search by name, number, email, phone, vendor, or description.</strong></section>{% endif %}
+{% endblock %}

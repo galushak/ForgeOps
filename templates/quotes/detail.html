@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}{{ quote }} · ForgeOps{% endblock %}
+{% block content %}
+<div class="detail-hero">
+  <div><a class="back-link" href="{% url 'project_detail' quote.project.pk %}">← {{ quote.project.name }}</a><span class="status {{ quote.status|status_class }}">{{ quote.get_status_display }}</span><h1>{{ quote.name }}</h1><p>{{ quote.quote_number|default:'Draft — number assigned on issue' }}{% if quote.group %} · Related set: {{ quote.group.name }}{% endif %}</p></div>
+  <div class="head-actions">
+    <a class="btn btn-secondary" href="{% url 'quote_pdf' quote.pk %}">{% if quote.is_issued %}Download PDF{% else %}Preview PDF{% endif %}</a>
+    <form method="post" action="{% url 'quote_duplicate_option' quote.pk %}">{% csrf_token %}<button class="btn btn-secondary" type="submit">Duplicate as option</button></form>
+    {% if not quote.is_issued %}<form method="post" action="{% url 'quote_issue' quote.pk %}" data-confirm="Issue this quote and assign its permanent number?">{% csrf_token %}<button class="btn btn-primary" type="submit">Issue quote</button></form>{% else %}<form method="post" action="{% url 'quote_replace' quote.pk %}">{% csrf_token %}<button class="btn btn-secondary" type="submit">Create revision</button></form>{% endif %}
+  </div>
+</div>
+
+<div class="summary-strip"><div><small>Parts due upfront</small><strong>{{ quote.parts_total|currency }}</strong></div><div><small>Estimated total</small><strong>{{ quote.estimated_total|currency }}</strong></div><div><small>Payments</small><strong>{{ quote.payments_total|currency }}</strong></div><div><small>Balance</small><strong>{{ quote.balance|currency }}</strong></div></div>
+
+{% if quote.is_issued %}
+<div class="head-actions document-status-actions">
+  {% if quote.status == 'awaiting_approval' %}<form method="post" action="{% url 'quote_approve' quote.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Mark approved</button></form><form method="post" action="{% url 'quote_status' quote.pk 'not_approved' %}">{% csrf_token %}<button class="btn btn-secondary" type="submit">Not approved</button></form>{% endif %}
+  {% if quote.status == 'approved_pending' %}<a class="btn btn-primary" href="{% url 'payment_create' 'quote' quote.pk %}">Record payment</a>{% endif %}
+  {% if quote.status != 'void' and quote.status != 'approved_paid' %}<form method="post" action="{% url 'quote_status' quote.pk 'void' %}" data-confirm="Void this quote?">{% csrf_token %}<button class="btn btn-danger" type="submit">Void</button></form>{% endif %}
+</div>
+{% endif %}
+
+{% if quote_form %}<form id="quote-details-form" method="post">{% csrf_token %}</form>
+<section class="panel editor-section document-editor">
+  <div class="panel-head"><div><h2>Quote setup</h2><small class="muted">Name this option and optionally connect it to other quote options.</small></div><button class="btn btn-primary btn-small" type="submit" form="quote-details-form">Save quote</button></div>
+  <div class="editor-grid editor-grid-2">
+    {% include 'generic/field.html' with field=quote_form.name %}
+    {% include 'generic/field.html' with field=quote_form.discount_program %}
+    {% include 'generic/field.html' with field=quote_form.group %}
+    {% include 'generic/field.html' with field=quote_form.new_group_name %}
+  </div>
+  {% for error in quote_form.non_field_errors %}<div class="field-error editor-error">{{ error }}</div>{% endfor %}
+</section>
+{% endif %}
+
+<section class="panel document-lines">
+  <div class="panel-head"><div><h2>Equipment and materials</h2><small class="muted">Accounting category is selected on each line item.</small></div>{% if not quote.is_issued %}<a class="btn btn-primary btn-small" href="{% url 'quote_item_create' quote.pk %}">Add item</a>{% endif %}</div>
+  <div class="table-wrap"><table class="data-table"><thead><tr><th>Description</th><th>Category</th><th>Qty</th><th class="number">Unit</th><th class="number">Total</th>{% if not quote.is_issued %}<th class="number">Actions</th>{% endif %}</tr></thead><tbody>{% for item in quote.items.all %}<tr><td>{% if not quote.is_issued %}<a href="{% url 'quote_item_edit' quote.pk item.pk %}"><strong>{{ item.description }}</strong></a>{% else %}<strong>{{ item.description }}</strong>{% endif %}</td><td><small>{{ item.income_category|default:'Uncategorized' }}</small></td><td>{{ item.quantity }}</td><td class="number">{{ item.unit_price|currency }}</td><td class="number">{{ item.line_total|currency }}</td>{% if not quote.is_issued %}<td><div class="row-actions"><a class="btn btn-quiet btn-small" href="{% url 'quote_item_edit' quote.pk item.pk %}">Edit</a><form method="post" action="{% url 'quote_item_delete' quote.pk item.pk %}" data-confirm="Delete this quote item?">{% csrf_token %}<button class="btn btn-danger btn-small" type="submit">Delete</button></form></div></td>{% endif %}</tr>{% empty %}<tr><td colspan="{% if quote.is_issued %}5{% else %}6{% endif %}" class="empty">No equipment or material lines yet.</td></tr>{% endfor %}</tbody></table></div>
+  {% if not quote.is_issued %}<div class="panel-body"><a class="btn btn-secondary btn-small" href="{% url 'quote_surcharge_create' quote.pk %}">Add vendor surcharge</a></div>{% endif %}
+</section>
+
+{% if quote.surcharges.exists %}<section class="panel compact-panel"><div class="panel-head"><h2>Vendor surcharges</h2></div><div class="list">{% for fee in quote.surcharges.all %}<div class="list-row"><span>{% if not quote.is_issued %}<a href="{% url 'quote_surcharge_edit' quote.pk fee.pk %}"><strong>{{ fee.label }}</strong></a>{% else %}<strong>{{ fee.label }}</strong>{% endif %}</span><div class="list-row-right"><strong>{{ fee.amount|currency }}</strong>{% if not quote.is_issued %}<form method="post" action="{% url 'quote_surcharge_delete' quote.pk fee.pk %}" data-confirm="Delete this vendor surcharge?">{% csrf_token %}<button class="btn btn-danger btn-small" type="submit">Delete</button></form>{% endif %}</div></div>{% endfor %}</div></section>{% endif %}
+
+<section class="panel document-lines labor-estimate-panel">
+  <div class="panel-head"><div><h2>Estimated labor</h2><small class="muted">Labor is estimated as its own line and is billed after the work is complete.</small></div></div>
+  {% if quote_form %}
+  <div class="editor-grid editor-grid-4 labor-estimate-fields">
+    {% include 'generic/field.html' with field=quote_form.estimated_labor_hours %}
+    {% include 'generic/field.html' with field=quote_form.labor_rate %}
+    {% include 'generic/field.html' with field=quote_form.labor_minimum_hours %}
+    {% include 'generic/field.html' with field=quote_form.labor_category %}
+  </div>
+  <div class="labor-estimate-preview"><span>Current billed estimate</span><strong>{{ quote.estimated_billable_hours }} hrs · {{ quote.labor_subtotal|currency }}</strong></div>
+  {% else %}
+  <div class="table-wrap"><table class="data-table"><thead><tr><th>Description</th><th>Category</th><th class="number">Hours</th><th class="number">Rate</th><th class="number">Amount</th></tr></thead><tbody><tr><td><strong>Estimated labor</strong><br><small>{{ quote.labor_minimum_hours }} hour minimum</small></td><td>{{ quote.labor_category|default:'Uncategorized' }}</td><td class="number">{{ quote.estimated_billable_hours }}</td><td class="number">{{ quote.labor_rate|currency }}</td><td class="number">{{ quote.labor_subtotal|currency }}</td></tr></tbody></table></div>
+  {% endif %}
+</section>
+
+<div class="document-total document-total-inline">
+  <div class="total-row"><span>Items subtotal</span><strong>{{ quote.items_subtotal|currency }}</strong></div>
+  {% for fee in quote.surcharges.all %}<div class="total-row"><span>{{ fee.label }}</span><strong>{{ fee.amount|currency }}</strong></div>{% endfor %}
+  <div class="total-row"><span>Materials sales tax ({{ quote.sales_tax_rate }}%)</span><strong>{{ quote.materials_tax|currency }}</strong></div>
+  <div class="total-row"><span>Administrative fee</span><strong>{{ quote.administrative_fee|currency }}</strong></div>
+  <div class="total-row due-now"><span>Parts due upfront</span><strong>{{ quote.parts_total|currency }}</strong></div>
+  <div class="total-row"><span>Estimated labor · {{ quote.estimated_billable_hours }} hrs</span><strong>{{ quote.labor_subtotal|currency }}</strong></div>
+  <div class="total-row"><span>Labor sales tax{% if not quote.labor_taxable %} (legacy non-taxable){% endif %}</span><strong>{{ quote.labor_tax|currency }}</strong></div>
+  {% if quote.labor_discount_credit %}<div class="total-row"><span>{{ quote.discount_label }}</span><strong>−{{ quote.labor_discount_credit|currency }}</strong></div>{% endif %}
+  <div class="total-row grand"><span>Estimated quote total</span><strong>{{ quote.estimated_total|currency }}</strong></div>
+</div>
+
+{% if quote_form %}
+<section class="panel editor-section document-editor notes-terms-panel">
+  <div class="panel-head"><div><h2>Terms and notes</h2><small class="muted">Only selected terms and client notes appear on the client document.</small></div></div>
+  <div class="editor-grid editor-grid-single">
+    <details class="selection-menu field-wide">
+      <summary>Selected terms <span>{{ quote.selected_terms.count }} currently selected</span></summary>
+      <div class="selection-menu-panel"><label>{{ quote_form.selected_terms.label }}</label>{{ quote_form.selected_terms }}{% for error in quote_form.selected_terms.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</div>
+    </details>
+    {% include 'generic/field.html' with field=quote_form.client_notes %}
+    {% include 'generic/field.html' with field=quote_form.internal_notes %}
+  </div>
+</section>
+<div class="head-actions workspace-actions document-save-actions"><button class="btn btn-primary" type="submit" form="quote-details-form">Save quote</button></div>
+{% endif %}
+
+<div class="grid grid-2 document-support-grid">
+  <div><div class="section-title"><h2>Payments</h2>{% if quote.is_issued and quote.status == 'approved_pending' %}<a class="btn btn-primary btn-small" href="{% url 'payment_create' 'quote' quote.pk %}">Record payment</a>{% endif %}</div><section class="panel"><div class="list">{% for payment in quote.payments.all %}<div class="list-row"><span><strong>{{ payment.payment_date|date:'M j, Y' }} · {{ payment.amount|currency }}</strong><small>{{ payment.notes }}</small><details><summary class="muted">Accounting breakdown</summary>{% for allocation in payment.allocations.all %}<small>{{ allocation.label }} — {{ allocation.amount|currency }}</small>{% endfor %}</details></span><a class="btn btn-secondary btn-small" href="{% url 'attachment_add' 'payment' payment.pk %}">Receipts</a></div>{% empty %}<div class="empty">No payments recorded.</div>{% endfor %}</div></section></div>
+  <div><div class="section-title"><h2>Files</h2><a class="btn btn-secondary btn-small" href="{% url 'attachment_add' 'quote' quote.pk %}">Upload</a></div><section class="panel"><div class="list">{% for file in quote.attachments.all %}<div class="list-row"><span><strong>{{ file.label|default:file.file.name|file_basename }}</strong><small>{{ file.get_kind_display }} · {{ file.get_visibility_display }}</small></span><a class="btn btn-secondary btn-small" href="{{ file.file.url }}">Open</a></div>{% empty %}<div class="empty">No files attached.</div>{% endfor %}</div></section></div>
+</div>
+
+{% if quote.is_issued %}<div class="section-title"><h2>Selected terms</h2></div><section class="panel panel-pad">{% for term in quote.term_snapshots.all %}<p><strong>{{ term.name }}</strong><br><span class="muted">{{ term.body }}</span></p>{% endfor %}</section>{% endif %}
+{% endblock %}

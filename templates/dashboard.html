@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}Home · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><span class="eyebrow"><span class="system-dot"></span> OPERATIONS · {{ today|date:'F Y' }}</span><h1>Dashboard</h1><p>Live project, document, and cash-flow status.</p></div>
+  <div class="head-actions"><a class="btn btn-secondary" href="{% url 'reports' %}">View reports</a><a class="btn btn-primary" href="{% url 'client_create' %}">New client</a></div>
+</div>
+
+<div class="dashboard-grid">
+  <section class="panel metric metric-primary span-4"><span class="metric-label">Revenue this month</span><strong>{{ revenue|currency }}</strong><small>Client payments excluding collected sales tax</small></section>
+  <section class="panel metric span-4"><span class="metric-label">Operating expenses</span><strong>{{ project_expenses|add:business_expenses|currency }}</strong><small>{{ project_expenses|currency }} project · {{ business_expenses|currency }} business</small></section>
+  <section class="panel metric metric-positive span-4"><span class="metric-label">Net income</span><strong>{{ net_income|currency }}</strong><small>Before the income-tax planning reserve</small></section>
+  <section class="panel metric span-4"><span class="metric-label">Sales tax collected</span><strong>{{ tax_collected|currency }}</strong><small>Exact tax allocated from client payments</small></section>
+  <section class="panel metric span-4"><span class="metric-label">Available client credits</span><strong>{{ available_credits|currency }}</strong><small>Ready to apply to future invoices</small></section>
+  <section class="panel metric span-4"><span class="metric-label">Projects requiring attention</span><strong>{{ attention_project_count }}</strong><small>Active, waiting, or pending work · support calls excluded</small></section>
+
+  <section class="panel span-7">
+    <div class="panel-head"><h2>Projects in motion</h2><a class="btn btn-quiet btn-small" href="{% url 'project_list' %}">All projects →</a></div>
+    <div class="list">
+      {% for project in attention_projects %}<a class="list-row" href="{% url 'project_detail' project.pk %}"><span><strong>{{ project.name }}</strong><small>{{ project.client.name }} · {{ project.project_number }}</small></span><span class="status {{ project.status|status_class }}">{{ project.get_status_display }}</span></a>{% empty %}<div class="empty"><strong>No active projects yet.</strong>Create a client to get started.</div>{% endfor %}
+    </div>
+  </section>
+  <section class="panel span-5">
+    <div class="panel-head"><h2>Quotes</h2><span class="status status-neutral">{{ pending_quotes|length }} open</span></div>
+    <div class="list">
+      {% for quote in pending_quotes %}<a class="list-row" href="{% url 'quote_detail' quote.pk %}"><span><strong>{{ quote.name }}</strong><small>{{ quote.project.client.name }} · {{ quote.balance|currency }} due</small></span><span class="status {{ quote.status|status_class }}">{{ quote.get_status_display }}</span></a>{% empty %}<div class="empty">No quotes need attention.</div>{% endfor %}
+    </div>
+  </section>
+  <section class="panel span-6">
+    <div class="panel-head"><h2>Invoices awaiting payment</h2></div>
+    <div class="list">
+      {% for invoice in unpaid_invoices %}<a class="list-row" href="{% url 'invoice_detail' invoice.pk %}"><span><strong>{{ invoice.invoice_number }}</strong><small>{{ invoice.project.client.name }}{% if invoice.is_overdue %} · Overdue{% endif %}</small></span><span><strong>{{ invoice.balance|currency }}</strong><small>due {{ invoice.due_date|date:'M j' }}</small></span></a>{% empty %}<div class="empty">No unpaid invoices.</div>{% endfor %}
+    </div>
+  </section>
+  <section class="panel span-6">
+    <div class="panel-head"><h2>Upcoming quote expirations</h2></div>
+    <div class="list">
+      {% for quote in upcoming_expirations %}<a class="list-row" href="{% url 'quote_detail' quote.pk %}"><span><strong>Quote expires {{ quote.expires_on|date:'M j' }}</strong><small>{{ quote.name }} · {{ quote.project.name }}</small></span><span>→</span></a>{% endfor %}
+      {% if not upcoming_expirations %}<div class="empty">No quotes expire in the next seven days.</div>{% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

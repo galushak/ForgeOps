@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}Projects · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><span class="eyebrow">THE WORK</span><h1>Projects</h1><p>Quotes, invoices, labor, expenses, notes, and project packets live here.</p></div>
+  <div class="head-actions">
+    <details class="filter-menu">
+      <summary class="btn btn-secondary">Filter: {{ selected_status_label }}</summary>
+      <div class="filter-menu-panel">
+        <span class="filter-menu-label">Project status</span>
+        {% for value,label in filter_choices %}<a class="{% if selected_status == value %}active{% endif %}" href="?status={{ value }}"><span>{{ label }}</span>{% if selected_status == value %}<strong>✓</strong>{% endif %}</a>{% endfor %}
+      </div>
+    </details>
+    <a class="btn btn-primary" href="{% url 'project_create_global' %}">New project</a>
+  </div>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>{{ selected_status_label }}</h2><span class="status status-neutral">{{ projects|length }} shown</span></div>
+  <div class="list">{% for project in projects %}<a class="list-row" href="{% url 'project_detail' project.pk %}"><span><strong>{{ project.name }}</strong><small>{{ project.client.name }} · {{ project.project_number }}</small></span><span class="list-row-right"><span class="status {{ project.status|status_class }}">{{ project.get_status_display }}</span><span>→</span></span></a>{% empty %}<div class="empty"><strong>No projects in this view.</strong>Choose a different filter or create a project.</div>{% endfor %}</div>
+</section>
+{% endblock %}
