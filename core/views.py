@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
@@ -19,6 +20,7 @@ from .forms import (
     ApplyProjectCreditForm,
     AttachmentForm,
     BusinessProfileForm,
+    CatalogItemForm,
     CategoryForm,
     ClientAddressForm,
     ClientForm,
@@ -29,6 +31,7 @@ from .forms import (
     InvoiceItemForm,
     InvoiceSurchargeForm,
     LaborEntryForm,
+    LedgerCorrectionForm,
     NoteForm,
     PaymentForm,
     ProjectForm,
@@ -44,6 +47,7 @@ from .models import (
     AccountingCategory,
     Attachment,
     BusinessProfile,
+    CatalogItem,
     Client,
     ClientAddress,
     DiscountProgram,
@@ -53,6 +57,7 @@ from .models import (
     InvoiceItem,
     InvoiceSurcharge,
     LaborEntry,
+    LedgerCorrection,
     Note,
     Payment,
     PaymentAllocation,
@@ -65,7 +70,7 @@ from .models import (
     Vendor,
     money,
 )
-from .pdfs import invoice_pdf_bytes, project_packet_bytes, quote_pdf_bytes
+from .pdfs import client_packet_bytes, invoice_pdf_bytes, project_packet_bytes, quote_pdf_bytes
 from .services import (
     apply_project_credit,
     approve_quote,
@@ -75,10 +80,14 @@ from .services import (
     finalize_payment,
     issue_invoice,
     issue_quote,
+    ledger_snapshot,
     record_activity,
+    reinstate_payment,
     replace_quote,
     save_attachments,
     seed_defaults,
+    set_expense_void_state,
+    void_payment,
 )
 
 
@@ -129,18 +138,64 @@ def _sum(queryset, field="amount"):
     return money(queryset.aggregate(total=Sum(field))["total"])
 
 
+def _calendar_reserve_change(start, end, rate, basis):
+    """Return additive reserve accrual/release across calendar-year segments.
+
+    Calculating a rounded percentage independently for every month and quarter
+    creates penny drift and prevents losses from releasing earlier reserves.
+    Using the change between rounded year-to-date balances makes adjacent
+    periods reconcile exactly to their calendar-year report.
+    """
+    change = Decimal("0")
+    segment_start = start
+    while segment_start <= end:
+        year_start = date(segment_start.year, 1, 1)
+        segment_end = min(end, date(segment_start.year, 12, 31))
+        opening_end = segment_start - timedelta(days=1)
+        closing_balance = money(basis(year_start, segment_end) * rate / 100)
+        opening_balance = (
+            money(basis(year_start, opening_end) * rate / 100)
+            if opening_end >= year_start
+            else Decimal("0")
+        )
+        change += closing_balance - opening_balance
+        segment_start = segment_end + timedelta(days=1)
+    return money(change)
+
+
+def _catalog_data(kind):
+    return [
+        {
+            "id": item.pk,
+            "name": item.name,
+            "description": item.description or item.name,
+            "unit": item.unit,
+            "rate": str(item.default_rate),
+            "taxable": item.taxable,
+            "category": item.income_category_id,
+        }
+        for item in CatalogItem.objects.filter(kind=kind, active=True)
+    ]
+
+
 @login_required
 def dashboard(request):
     expire_quotes()
     today = timezone.localdate()
     month_start = today.replace(day=1)
-    payments = Payment.objects.filter(payment_date__range=(month_start, today))
-    revenue = _sum(PaymentAllocation.objects.filter(payment__in=payments, kind=PaymentAllocation.Kind.REVENUE))
-    project_expenses = _sum(Expense.objects.filter(expense_type=Expense.Type.PROJECT, expense_date__range=(month_start, today)))
+    payments = Payment.objects.filter(payment_date__range=(month_start, today), voided_at__isnull=True)
+    # The operating dashboard follows the owner's cash-planning convention:
+    # revenue is the gross amount received from clients, including sales tax.
+    # The exact tax portion remains visible separately below.
+    revenue = _sum(payments)
+    project_expenses = _sum(
+        Expense.objects.filter(expense_type=Expense.Type.PROJECT, expense_date__range=(month_start, today), voided_at__isnull=True)
+    )
     business_expenses = _sum(
         Expense.objects.filter(
             expense_type=Expense.Type.BUSINESS,
             expense_date__range=(month_start, today),
+            voided_at__isnull=True,
         ).exclude(category__name__in=["Sales Tax Paid", "Income Tax Paid"])
     )
     tax_collected = _sum(PaymentAllocation.objects.filter(payment__in=payments, kind=PaymentAllocation.Kind.SALES_TAX))
@@ -167,7 +222,9 @@ def dashboard(request):
         "pending_quotes": pending_quotes,
         "unpaid_invoices": unpaid_invoices,
         "upcoming_expirations": upcoming_expirations,
-        "available_credits": _sum(ProjectCredit.objects.filter(remaining_amount__gt=0), "remaining_amount"),
+        "available_credits": _sum(
+            ProjectCredit.objects.filter(remaining_amount__gt=0, source_payment__voided_at__isnull=True), "remaining_amount"
+        ),
     }
     return render(request, "dashboard.html", context)
 
@@ -285,6 +342,12 @@ def project_list(request):
     else:
         status = "active"
         projects = projects.exclude(status__in=[Project.Status.COMPLETED, Project.Status.ARCHIVED, Project.Status.CANCELLED])
+    projects = list(projects.order_by("client__name", "-created_at"))
+    project_groups = []
+    for project in projects:
+        if not project_groups or project_groups[-1]["client"].pk != project.client_id:
+            project_groups.append({"client": project.client, "projects": []})
+        project_groups[-1]["projects"].append(project)
     filter_choices = [("active", "All active"), ("all", "All projects"), *Project.Status.choices]
     selected_status_label = dict(filter_choices).get(status, "All active")
     return render(
@@ -292,6 +355,7 @@ def project_list(request):
         "projects/list.html",
         {
             "projects": projects,
+            "project_groups": project_groups,
             "selected_status": status,
             "selected_status_label": selected_status_label,
             "filter_choices": filter_choices,
@@ -443,7 +507,11 @@ def quote_detail(request, pk):
     elif request.method == "POST":
         messages.error(request, "Issued quotes are read-only. Create a replacement to make changes.")
         return redirect("quote_detail", pk=quote.pk)
-    return render(request, "quotes/detail.html", {"quote": quote, "quote_form": quote_form})
+    return render(
+        request,
+        "quotes/detail.html",
+        {"quote": quote, "quote_form": quote_form, "catalog_data": _catalog_data(CatalogItem.Kind.LABOR)},
+    )
 
 
 @login_required
@@ -461,7 +529,7 @@ def quote_item_form(request, quote_pk, pk=None):
         item.save()
         messages.success(request, "Quote item saved.")
         return redirect("quote_detail", pk=quote.pk)
-    return render(request, "generic/form.html", {"form": form, "title": "Quote item", "cancel_url": reverse("quote_detail", args=[quote.pk]), "delete_url": reverse("quote_item_delete", args=[quote.pk, item.pk]) if item else None, "delete_label": "Delete item"})
+    return render(request, "generic/form.html", {"form": form, "title": "Quote item", "cancel_url": reverse("quote_detail", args=[quote.pk]), "delete_url": reverse("quote_item_delete", args=[quote.pk, item.pk]) if item else None, "delete_label": "Delete item", "catalog_data": _catalog_data(CatalogItem.Kind.MATERIAL)})
 
 
 @login_required
@@ -603,7 +671,9 @@ def invoice_detail(request, pk):
         messages.error(request, "Issued invoices are read-only. Use credits or void the document to correct it.")
         return redirect("invoice_detail", pk=invoice.pk)
     uninvoiced_labor = invoice.project.labor_entries.filter(invoice__isnull=True)
-    available_credits = invoice.project.credits.filter(remaining_amount__gt=0)
+    available_credits = invoice.project.credits.filter(
+        remaining_amount__gt=0, source_payment__voided_at__isnull=True
+    )
     return render(
         request,
         "invoices/detail.html",
@@ -630,7 +700,7 @@ def invoice_item_form(request, invoice_pk, pk=None):
         item.invoice = invoice
         item.save()
         return redirect("invoice_detail", pk=invoice.pk)
-    return render(request, "generic/form.html", {"form": form, "title": "Additional invoice item", "cancel_url": reverse("invoice_detail", args=[invoice.pk]), "delete_url": reverse("invoice_item_delete", args=[invoice.pk, item.pk]) if item else None, "delete_label": "Delete item"})
+    return render(request, "generic/form.html", {"form": form, "title": "Additional invoice item", "cancel_url": reverse("invoice_detail", args=[invoice.pk]), "delete_url": reverse("invoice_item_delete", args=[invoice.pk, item.pk]) if item else None, "delete_label": "Delete item", "catalog_data": _catalog_data(CatalogItem.Kind.MATERIAL)})
 
 
 @login_required
@@ -749,7 +819,7 @@ def labor_form(request, project_pk, pk=None):
         record_activity(project, "labor", f"Labor recorded: {entry.actual_hours:.2f} hours", entry.description)
         messages.success(request, "Labor entry saved.")
         return redirect("project_detail", pk=project.pk)
-    return render(request, "generic/form.html", {"form": form, "title": "Edit labor" if entry else "Add labor", "cancel_url": reverse("project_detail", args=[project.pk]), "delete_url": reverse("labor_delete", args=[project.pk, entry.pk]) if entry else None, "delete_label": "Delete labor entry"})
+    return render(request, "generic/form.html", {"form": form, "title": "Edit labor" if entry else "Add labor", "cancel_url": reverse("project_detail", args=[project.pk]), "delete_url": reverse("labor_delete", args=[project.pk, entry.pk]) if entry else None, "delete_label": "Delete labor entry", "catalog_data": _catalog_data(CatalogItem.Kind.LABOR)})
 
 
 @login_required
@@ -787,7 +857,7 @@ def invoice_labor_form(request, invoice_pk):
     return render(
         request,
         "generic/form.html",
-        {"form": form, "title": "Add labor to invoice", "cancel_url": reverse("invoice_detail", args=[invoice.pk])},
+        {"form": form, "title": "Add labor to invoice", "cancel_url": reverse("invoice_detail", args=[invoice.pk]), "catalog_data": _catalog_data(CatalogItem.Kind.LABOR)},
     )
 
 
@@ -799,17 +869,22 @@ def quick_labor(request):
         project = form.cleaned_data["project"]
         entry = LaborEntry.objects.create(
             project=project,
+            catalog_item=form.cleaned_data.get("catalog_item"),
             work_date=form.cleaned_data["work_date"],
             description=form.cleaned_data["description"],
             actual_minutes=int((form.cleaned_data["hours"] * 60).quantize(Decimal("1"))),
-            hourly_rate=project.hourly_rate,
+            hourly_rate=(
+                form.cleaned_data["catalog_item"].default_rate
+                if form.cleaned_data.get("catalog_item") and form.cleaned_data["catalog_item"].default_rate
+                else project.hourly_rate
+            ),
             category=form.cleaned_data["category"],
             billable=form.cleaned_data["billable"],
         )
         record_activity(project, "labor", f"Labor recorded: {entry.actual_hours:.2f} hours", entry.description)
         messages.success(request, "Labor saved.")
         return redirect("project_detail", pk=project.pk)
-    return render(request, "generic/form.html", {"form": form, "title": "Quick labor entry", "cancel_url": reverse("dashboard")})
+    return render(request, "generic/form.html", {"form": form, "title": "Quick labor entry", "cancel_url": reverse("dashboard"), "catalog_data": _catalog_data(CatalogItem.Kind.LABOR)})
 
 
 @login_required
@@ -871,8 +946,49 @@ def apply_credit_form(request, invoice_pk):
 
 @login_required
 def expense_list(request):
-    expenses = Expense.objects.select_related("client", "project", "vendor", "category")
-    return render(request, "money/list.html", {"payments": Payment.objects.select_related("client", "project", "quote", "invoice")[:100], "expenses": expenses[:100]})
+    query = request.GET.get("q", "").strip()
+    state = request.GET.get("state", "all")
+    payments = Payment.objects.select_related("client", "project", "quote", "invoice").prefetch_related(
+        "allocations", "attachments", "corrections"
+    )
+    expenses = Expense.objects.select_related("client", "project", "quote", "invoice", "vendor", "category").prefetch_related(
+        "attachments", "corrections"
+    )
+    if query:
+        payments = payments.filter(
+            Q(client__name__icontains=query)
+            | Q(project__name__icontains=query)
+            | Q(project__project_number__icontains=query)
+            | Q(quote__quote_number__icontains=query)
+            | Q(invoice__invoice_number__icontains=query)
+            | Q(notes__icontains=query)
+        )
+        expenses = expenses.filter(
+            Q(client__name__icontains=query)
+            | Q(project__name__icontains=query)
+            | Q(project__project_number__icontains=query)
+            | Q(vendor__name__icontains=query)
+            | Q(category__name__icontains=query)
+            | Q(description__icontains=query)
+        )
+    if state == "active":
+        payments = payments.filter(voided_at__isnull=True)
+        expenses = expenses.filter(voided_at__isnull=True)
+    elif state == "voided":
+        payments = payments.filter(voided_at__isnull=False)
+        expenses = expenses.filter(voided_at__isnull=False)
+    return render(
+        request,
+        "money/list.html",
+        {
+            "payments": payments[:100],
+            "expenses": expenses[:100],
+            "query": query,
+            "state": state,
+            "payment_count": payments.count(),
+            "expense_count": expenses.count(),
+        },
+    )
 
 
 @login_required
@@ -881,6 +997,10 @@ def expense_form(request, expense_type, pk=None):
     if expense_type not in [Expense.Type.PROJECT, Expense.Type.BUSINESS]:
         raise Http404
     expense = get_object_or_404(Expense, pk=pk, expense_type=expense_type) if pk else None
+    if expense and expense.is_voided:
+        messages.error(request, "Reinstate this expense before editing it.")
+        return redirect("expense_list")
+    before_snapshot = ledger_snapshot(expense) if expense else None
     initial = {}
     if not expense:
         initial = {key: request.GET.get(key) for key in ["client", "project", "quote", "invoice"] if request.GET.get(key)}
@@ -890,6 +1010,14 @@ def expense_form(request, expense_type, pk=None):
         expense = form.save(commit=False)
         expense.full_clean()
         expense.save()
+        if before_snapshot:
+            LedgerCorrection.objects.create(
+                expense=expense,
+                action=LedgerCorrection.Action.EDIT,
+                reason=form.cleaned_data["correction_reason"].strip(),
+                before_data=before_snapshot,
+                after_data=ledger_snapshot(expense),
+            )
         save_attachments(expense, request.FILES.getlist("receipts"), kind=Attachment.Kind.RECEIPT)
         if expense.project:
             record_activity(expense.project, "expense", f"Project expense recorded: ${expense.amount}", expense.description)
@@ -923,6 +1051,102 @@ def expense_form(request, expense_type, pk=None):
             "expense_type": expense_type,
             "dependent_data": dependent_data,
         },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def ledger_correction(request, entry_type, pk, action):
+    if entry_type == "payment":
+        entry = get_object_or_404(Payment.objects.select_related("client", "project", "quote", "invoice"), pk=pk)
+    elif entry_type == "expense":
+        entry = get_object_or_404(Expense.objects.select_related("client", "project", "vendor", "category"), pk=pk)
+    else:
+        raise Http404
+    if action not in ["void", "reinstate"]:
+        raise Http404
+    form = LedgerCorrectionForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        reason = form.cleaned_data["reason"]
+        try:
+            if entry_type == "payment":
+                (void_payment if action == "void" else reinstate_payment)(entry, reason)
+            else:
+                set_expense_void_state(entry, reason, action == "void")
+            messages.success(request, "Ledger entry voided." if action == "void" else "Ledger entry reinstated.")
+            return redirect("expense_list")
+        except ValueError as error:
+            form.add_error(None, str(error))
+    return render(
+        request,
+        "generic/form.html",
+        {
+            "form": form,
+            "title": f"{action.title()} {entry_type}",
+            "cancel_url": reverse("expense_list"),
+            "submit_label": action.title(),
+            "danger_submit": action == "void",
+        },
+    )
+
+
+@login_required
+def receipt_inbox(request):
+    raw_query = request.GET.get("q", "").strip()
+    query = raw_query.lower()
+    payment_type = ContentType.objects.get_for_model(Payment)
+    expense_type = ContentType.objects.get_for_model(Expense)
+    receipt_files = Attachment.objects.filter(
+        kind=Attachment.Kind.RECEIPT,
+        content_type__in=[payment_type, expense_type],
+    ).select_related("content_type")
+    receipt_rows = []
+    for receipt in receipt_files:
+        entry = receipt.content_object
+        if not entry:
+            continue
+        if isinstance(entry, Payment):
+            source = f"Payment · {entry.client.name} · {entry.document}"
+            entry_date = entry.payment_date
+            attach_url = reverse("attachment_add", args=["payment", entry.pk])
+        else:
+            source = f"{entry.get_expense_type_display()} · {entry.vendor or 'No vendor'} · {entry.category.name}"
+            entry_date = entry.expense_date
+            attach_url = reverse("attachment_add", args=["expense", entry.pk])
+        haystack = " ".join(
+            [source, receipt.label, receipt.file.name, getattr(entry, "description", ""), getattr(entry, "notes", "")]
+        ).lower()
+        if query and query not in haystack:
+            continue
+        receipt_rows.append(
+            {"receipt": receipt, "entry": entry, "source": source, "date": entry_date, "amount": entry.amount, "attach_url": attach_url}
+        )
+    receipt_rows.sort(key=lambda row: (row["date"], row["receipt"].created_at), reverse=True)
+
+    missing_payments = Payment.objects.filter(voided_at__isnull=True).annotate(
+        receipt_count=Count("attachments", filter=Q(attachments__kind=Attachment.Kind.RECEIPT))
+    ).filter(receipt_count=0).select_related("client", "project", "quote", "invoice")
+    missing_expenses = Expense.objects.filter(voided_at__isnull=True).annotate(
+        receipt_count=Count("attachments", filter=Q(attachments__kind=Attachment.Kind.RECEIPT))
+    ).filter(receipt_count=0).select_related("vendor", "category", "project")
+    missing_rows = []
+    for payment in missing_payments:
+        source = f"Payment · {payment.client.name} · {payment.document}"
+        if not query or query in f"{source} {payment.notes}".lower():
+            missing_rows.append(
+                {"source": source, "date": payment.payment_date, "amount": payment.amount, "attach_url": reverse("attachment_add", args=["payment", payment.pk])}
+            )
+    for expense in missing_expenses:
+        source = f"{expense.get_expense_type_display()} · {expense.vendor or 'No vendor'} · {expense.category.name}"
+        if not query or query in f"{source} {expense.description}".lower():
+            missing_rows.append(
+                {"source": source, "date": expense.expense_date, "amount": expense.amount, "attach_url": reverse("attachment_add", args=["expense", expense.pk])}
+            )
+    missing_rows.sort(key=lambda row: row["date"], reverse=True)
+    return render(
+        request,
+        "money/receipts.html",
+        {"receipt_rows": receipt_rows, "missing_rows": missing_rows, "query": raw_query},
     )
 
 
@@ -1028,32 +1252,76 @@ def _report_range(request):
 
 def _report_data(request):
     kind, year, start, end, label, due = _report_range(request)
-    payments = Payment.objects.filter(payment_date__range=(start, end))
+    payments = Payment.objects.filter(payment_date__range=(start, end), voided_at__isnull=True)
     allocations = PaymentAllocation.objects.filter(payment__in=payments)
-    revenue = _sum(allocations.filter(kind=PaymentAllocation.Kind.REVENUE))
+    # Reports intentionally use gross client payments for the headline revenue
+    # and conservative tax-planning calculations. The allocation split is still
+    # retained so collected sales tax can be reported exactly and audited.
+    revenue = _sum(payments)
     tax_collected = _sum(allocations.filter(kind=PaymentAllocation.Kind.SALES_TAX))
-    project_expenses = _sum(Expense.objects.filter(expense_type=Expense.Type.PROJECT, expense_date__range=(start, end)))
+    project_expenses = _sum(
+        Expense.objects.filter(expense_type=Expense.Type.PROJECT, expense_date__range=(start, end), voided_at__isnull=True)
+    )
     tax_category_names = ["Sales Tax Paid", "Income Tax Paid"]
     business_expense_query = Expense.objects.filter(
         expense_type=Expense.Type.BUSINESS,
         expense_date__range=(start, end),
+        voided_at__isnull=True,
     ).exclude(category__name__in=tax_category_names)
     business_expenses = _sum(business_expense_query)
     total_expenses = project_expenses + business_expenses
     net_income = revenue - total_expenses
     profile = BusinessProfile.get_solo()
-    income_tax_estimate = money(max(Decimal("0"), net_income) * profile.income_tax_reserve_rate / 100)
+
+    def gross_revenue_basis(basis_start, basis_end):
+        return _sum(
+            Payment.objects.filter(
+                payment_date__range=(basis_start, basis_end),
+                voided_at__isnull=True,
+            )
+        )
+
+    def net_income_basis(basis_start, basis_end):
+        basis_revenue = gross_revenue_basis(basis_start, basis_end)
+        basis_project_expenses = _sum(
+            Expense.objects.filter(
+                expense_type=Expense.Type.PROJECT,
+                expense_date__range=(basis_start, basis_end),
+                voided_at__isnull=True,
+            )
+        )
+        basis_business_expenses = _sum(
+            Expense.objects.filter(
+                expense_type=Expense.Type.BUSINESS,
+                expense_date__range=(basis_start, basis_end),
+                voided_at__isnull=True,
+            ).exclude(category__name__in=tax_category_names)
+        )
+        return basis_revenue - basis_project_expenses - basis_business_expenses
+
+    income_tax_estimate = _calendar_reserve_change(
+        start,
+        end,
+        profile.income_tax_reserve_rate,
+        net_income_basis,
+    )
     period_tax_payments = Expense.objects.filter(
         expense_type=Expense.Type.BUSINESS,
         expense_date__range=(start, end),
         category__name__in=tax_category_names,
+        voided_at__isnull=True,
     )
     sales_tax_paid = _sum(period_tax_payments.filter(category__name="Sales Tax Paid"))
     income_tax_paid = _sum(period_tax_payments.filter(category__name="Income Tax Paid"))
-    exact_sales_reserve = max(Decimal("0"), tax_collected - sales_tax_paid)
-    conservative_target = money(revenue * profile.conservative_sales_tax_rate / 100)
-    conservative_sales_reserve = max(exact_sales_reserve, conservative_target - sales_tax_paid)
-    income_tax_remaining = max(Decimal("0"), income_tax_estimate - income_tax_paid)
+    exact_sales_reserve = tax_collected
+    conservative_sales_reserve = _calendar_reserve_change(
+        start,
+        end,
+        profile.conservative_sales_tax_rate,
+        gross_revenue_basis,
+    )
+    sales_tax_remaining = conservative_sales_reserve - sales_tax_paid
+    income_tax_remaining = income_tax_estimate - income_tax_paid
     invoice_query = Invoice.objects.filter(issue_date__range=(start, end)).exclude(status=Invoice.Status.VOID)
     invoice_total = money(sum((invoice.total + invoice.credits_total for invoice in invoice_query), Decimal("0")))
     outstanding_invoices = Invoice.objects.filter(issue_date__lte=end).exclude(status=Invoice.Status.VOID)
@@ -1065,8 +1333,14 @@ def _report_data(request):
         .annotate(total=Sum("amount"))
         .order_by("-total")
     )
+    if tax_collected:
+        income_by_category.append({"category__name": "Sales Tax Collected", "total": tax_collected})
+    client_credit_received = _sum(allocations.filter(kind=PaymentAllocation.Kind.CREDIT))
+    if client_credit_received:
+        income_by_category.append({"category__name": "Unapplied Client Credit", "total": client_credit_received})
+    income_by_category.sort(key=lambda row: row["total"], reverse=True)
     project_expense_by_category = list(
-        Expense.objects.filter(expense_type=Expense.Type.PROJECT, expense_date__range=(start, end))
+        Expense.objects.filter(expense_type=Expense.Type.PROJECT, expense_date__range=(start, end), voided_at__isnull=True)
         .values("category__name")
         .annotate(total=Sum("amount"))
         .order_by("-total")
@@ -1080,16 +1354,102 @@ def _report_data(request):
     project_profitability = []
     for project in Project.objects.exclude(is_support_project=True):
         collected = _sum(
-            PaymentAllocation.objects.filter(
-                payment__project=project,
-                payment__payment_date__range=(start, end),
-                kind=PaymentAllocation.Kind.REVENUE,
+            Payment.objects.filter(
+                project=project,
+                payment_date__range=(start, end),
+                voided_at__isnull=True,
             )
         )
-        costs = _sum(project.expenses.filter(expense_date__range=(start, end)))
+        costs = _sum(project.expenses.filter(expense_date__range=(start, end), voided_at__isnull=True))
         if collected or costs:
             project_profitability.append({"project": project, "collected": collected, "costs": costs, "profit": collected - costs})
     project_profitability.sort(key=lambda row: row["profit"], reverse=True)
+    client_summaries = []
+    for client in Client.objects.all():
+        collected = _sum(
+            Payment.objects.filter(
+                client=client,
+                payment_date__range=(start, end),
+                voided_at__isnull=True,
+            )
+        )
+        costs = _sum(
+            Expense.objects.filter(
+                client=client,
+                expense_date__range=(start, end),
+                voided_at__isnull=True,
+            )
+        )
+        client_invoices = Invoice.objects.filter(project__client=client, issue_date__range=(start, end)).exclude(status=Invoice.Status.VOID)
+        client_outstanding = money(
+            sum(
+                (invoice.balance for invoice in Invoice.objects.filter(project__client=client, issue_date__lte=end).exclude(status=Invoice.Status.VOID)),
+                Decimal("0"),
+            )
+            + sum(
+                (quote.balance for quote in Quote.objects.filter(project__client=client, issue_date__lte=end, status=Quote.Status.APPROVED_PENDING)),
+                Decimal("0"),
+            )
+        )
+        labor_minutes = LaborEntry.objects.filter(project__client=client, work_date__range=(start, end)).aggregate(total=Sum("actual_minutes"))["total"] or 0
+        if collected or costs or client_invoices.exists() or labor_minutes:
+            client_summaries.append(
+                {
+                    "client": client,
+                    "collected": collected,
+                    "costs": costs,
+                    "profit": collected - costs,
+                    "invoice_count": client_invoices.count(),
+                    "outstanding": client_outstanding,
+                    "labor_hours": Decimal(labor_minutes) / Decimal(60),
+                }
+            )
+    client_summaries.sort(key=lambda row: row["collected"], reverse=True)
+
+    project_details = []
+    for project in Project.objects.exclude(is_support_project=True).select_related("client"):
+        collected = _sum(
+            Payment.objects.filter(
+                project=project,
+                payment_date__range=(start, end),
+                voided_at__isnull=True,
+            )
+        )
+        costs = _sum(project.expenses.filter(expense_date__range=(start, end), voided_at__isnull=True))
+        labor_minutes = project.labor_entries.filter(work_date__range=(start, end)).aggregate(total=Sum("actual_minutes"))["total"] or 0
+        invoices_in_range = project.invoices.filter(issue_date__range=(start, end)).exclude(status=Invoice.Status.VOID)
+        if collected or costs or labor_minutes or invoices_in_range.exists():
+            project_details.append(
+                {
+                    "project": project,
+                    "collected": collected,
+                    "costs": costs,
+                    "profit": collected - costs,
+                    "labor_hours": Decimal(labor_minutes) / Decimal(60),
+                    "quote_count": project.quotes.filter(issue_date__range=(start, end)).count(),
+                    "invoice_count": invoices_in_range.count(),
+                    "outstanding": money(sum((invoice.balance for invoice in project.invoices.exclude(status=Invoice.Status.VOID)), Decimal("0"))),
+                }
+            )
+    project_details.sort(key=lambda row: (row["project"].client.name, row["project"].name))
+
+    pipeline_status = {
+        "projects": [
+            {"label": label_text, "count": Project.objects.filter(status=value, is_support_project=False).count()}
+            for value, label_text in Project.Status.choices
+            if Project.objects.filter(status=value, is_support_project=False).exists()
+        ],
+        "quotes": [
+            {"label": label_text, "count": Quote.objects.filter(status=value).count()}
+            for value, label_text in Quote.Status.choices
+            if Quote.objects.filter(status=value).exists()
+        ],
+        "invoices": [
+            {"label": label_text, "count": Invoice.objects.filter(status=value).count()}
+            for value, label_text in Invoice.Status.choices
+            if Invoice.objects.filter(status=value).exists()
+        ],
+    }
     max_chart = max([revenue, total_expenses, Decimal("1")])
     return {
         "range_kind": kind,
@@ -1106,13 +1466,16 @@ def _report_data(request):
         "income_tax_estimate": income_tax_estimate,
         "income_tax_paid": income_tax_paid,
         "income_tax_remaining": income_tax_remaining,
-        "estimated_after_tax_profit": net_income - income_tax_estimate - conservative_sales_reserve - sales_tax_paid,
+        "estimated_after_tax_profit": net_income - income_tax_estimate - conservative_sales_reserve,
         "tax_collected": tax_collected,
         "sales_tax_paid": sales_tax_paid,
         "exact_sales_reserve": exact_sales_reserve,
         "conservative_sales_reserve": conservative_sales_reserve,
         "sales_tax_cushion": conservative_sales_reserve - exact_sales_reserve,
-        "total_tax_remaining": conservative_sales_reserve + income_tax_remaining,
+        "sales_tax_cushion_abs": abs(conservative_sales_reserve - exact_sales_reserve),
+        "sales_tax_cushion_direction": "above" if conservative_sales_reserve >= exact_sales_reserve else "below",
+        "sales_tax_remaining": sales_tax_remaining,
+        "total_tax_remaining": sales_tax_remaining + income_tax_remaining,
         "total_tax_paid": sales_tax_paid + income_tax_paid,
         "invoice_total": invoice_total,
         "invoice_count": invoice_query.count(),
@@ -1121,11 +1484,17 @@ def _report_data(request):
         "project_expense_by_category": project_expense_by_category,
         "business_expense_by_category": business_expense_by_category,
         "project_profitability": project_profitability[:12],
+        "client_summaries": client_summaries,
+        "project_details": project_details,
+        "pipeline_status": pipeline_status,
         "revenue_chart_width": int((revenue / max_chart) * 100),
         "expense_chart_width": int((total_expenses / max_chart) * 100),
         "month_choices": [(i, calendar.month_name[i]) for i in range(1, 13)],
-        "selected_month": start.month,
+        # A yearly or quarterly report starts before the current month, but the
+        # hidden Month picker should still be ready for the month the user is in.
+        "selected_month": start.month if kind == "month" else timezone.localdate().month,
         "selected_quarter": int(request.GET.get("quarter", 1)) if kind == "quarter" else 1,
+        "reserve_position_label": "remaining" if kind == "year" else "movement",
     }
 
 
@@ -1153,6 +1522,17 @@ def project_packet(request, pk, audience):
 
 
 @login_required
+def client_packet(request, pk, audience):
+    client = get_object_or_404(Client, pk=pk)
+    if audience not in ["client", "internal"]:
+        raise Http404
+    client_safe = audience == "client"
+    safe_name = "".join(character if character.isalnum() else "-" for character in client.name).strip("-") or "CLIENT"
+    filename = f"{safe_name}-{'CLIENT' if client_safe else 'INTERNAL'}-PACKET.pdf"
+    return FileResponse(io.BytesIO(client_packet_bytes(client, client_safe=client_safe)), as_attachment=True, filename=filename)
+
+
+@login_required
 @require_http_methods(["GET", "POST"])
 def settings_profile(request):
     profile = BusinessProfile.get_solo()
@@ -1170,6 +1550,7 @@ def settings_profile(request):
             "terms": TermClause.objects.all(),
             "vendors": Vendor.objects.all(),
             "discounts": DiscountProgram.objects.all(),
+            "catalog_items": CatalogItem.objects.select_related("income_category").all(),
         },
     )
 
@@ -1179,6 +1560,7 @@ MODEL_FORM_CONFIG = {
     "term": (TermClause, TermClauseForm, "Terms clause"),
     "vendor": (Vendor, VendorForm, "Vendor"),
     "discount": (DiscountProgram, DiscountProgramForm, "Discount program"),
+    "catalog": (CatalogItem, CatalogItemForm, "Reusable line item"),
 }
 
 

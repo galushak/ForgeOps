@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Sum
 from django.utils import timezone
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
@@ -207,11 +208,12 @@ def quote_pdf_bytes(quote):
             [
                 Paragraph(item.description, styles["BodySmall"]),
                 Paragraph(f"{item.quantity:g}", styles["Right"]),
+                Paragraph(item.get_unit_display(), styles["Right"]),
                 Paragraph(currency(item.unit_price), styles["Right"]),
                 Paragraph(currency(item.line_total), styles["Right"]),
             ]
         )
-    story.extend([Paragraph("Equipment and materials", styles["Section"]), _line_table(rows, ["Description", "Qty", "Unit price", "Amount"], [3.55 * inch, 0.65 * inch, 1.1 * inch, 1.2 * inch], styles), Spacer(1, 8)])
+    story.extend([Paragraph("Equipment and materials", styles["Section"]), _line_table(rows, ["Description", "Qty", "Unit", "Rate", "Amount"], [3.0 * inch, 0.55 * inch, 0.65 * inch, 1.05 * inch, 1.25 * inch], styles), Spacer(1, 8)])
     totals = [("Items subtotal", quote.items_subtotal)]
     for surcharge in quote.surcharges.all():
         totals.append((surcharge.label, surcharge.amount))
@@ -225,7 +227,7 @@ def quote_pdf_bytes(quote):
     story.extend([_totals_table(totals, styles, "PARTS TOTAL DUE UPFRONT"), Spacer(1, 10)])
     labor_rows = [
         [
-            Paragraph("Estimated labor", styles["BodySmall"]),
+            Paragraph(quote.labor_catalog_item.name if quote.labor_catalog_item else "Estimated labor", styles["BodySmall"]),
             Paragraph(f"{quote.estimated_billable_hours:g} hrs", styles["Right"]),
             Paragraph(currency(quote.labor_rate), styles["Right"]),
             Paragraph(currency(quote.labor_subtotal), styles["Right"]),
@@ -284,12 +286,13 @@ def invoice_pdf_bytes(invoice):
             [
                 Paragraph(item.description, styles["BodySmall"]),
                 Paragraph(f"{item.quantity:g}", styles["Right"]),
+                Paragraph(item.get_unit_display(), styles["Right"]),
                 Paragraph(currency(item.unit_price), styles["Right"]),
                 Paragraph(currency(item.line_total), styles["Right"]),
             ]
         )
     if item_rows:
-        story.extend([Paragraph("Additional items", styles["Section"]), _line_table(item_rows, ["Description", "Qty", "Unit price", "Amount"], [3.55 * inch, 0.65 * inch, 1.1 * inch, 1.2 * inch], styles), Spacer(1, 8)])
+        story.extend([Paragraph("Additional items", styles["Section"]), _line_table(item_rows, ["Description", "Qty", "Unit", "Rate", "Amount"], [3.0 * inch, 0.55 * inch, 0.65 * inch, 1.05 * inch, 1.25 * inch], styles), Spacer(1, 8)])
     totals = [("Labor", invoice.labor_subtotal), (f"Labor sales tax ({invoice.sales_tax_rate:g}%)", invoice.labor_tax)]
     if invoice.materials_subtotal:
         totals.append(("Additional items", invoice.materials_subtotal))
@@ -372,7 +375,7 @@ def _packet_summary(project, client_safe=False):
         story.append(Paragraph("Payment history", styles["Section"]))
         payment_rows = [
             [Paragraph(f"{p.payment_date:%b %-d, %Y}", styles["BodySmall"]), Paragraph(str(p.document), styles["BodySmall"]), Paragraph(currency(p.amount), styles["Right"])]
-            for p in project.payments.all()
+            for p in project.payments.filter(voided_at__isnull=True)
         ]
         if payment_rows:
             story.append(_line_table(payment_rows, ["Date", "Document", "Amount"], [1.1 * inch, 4.0 * inch, 1.4 * inch], styles))
@@ -431,6 +434,89 @@ def project_packet_bytes(project, client_safe=False):
                 _append_pdf(writer, pdf_bytes)
         except Exception:
             continue
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def _client_packet_summary(client, client_safe=False):
+    profile = BusinessProfile.get_solo()
+    styles = _styles()
+    output = io.BytesIO()
+    document = SimpleDocTemplate(
+        output,
+        pagesize=letter,
+        rightMargin=0.65 * inch,
+        leftMargin=0.65 * inch,
+        topMargin=0.55 * inch,
+        bottomMargin=0.65 * inch,
+    )
+    label = "Client-Safe Account Packet" if client_safe else "Internal Client Account Packet"
+    story = [
+        _header(profile, label, "CLIENT RECORD", client.get_status_display(), [("Generated", timezone.localdate())], styles),
+        Spacer(1, 18),
+        Paragraph(client.name, styles["DocTitle"]),
+        Paragraph(
+            "<br/>".join(
+                value
+                for value in [client.primary_contact, client.email, client.phone, client.billing_address.replace("\n", "<br/>")]
+                if value
+            ),
+            styles["BodySmall"],
+        ),
+        Paragraph("Service addresses", styles["Section"]),
+    ]
+    for address in client.addresses.all():
+        story.append(
+            Paragraph(
+                f"<b>{address.label}</b>{' (Primary)' if address.is_primary else ''}<br/>"
+                f"{address.address_line_1} {address.address_line_2}<br/>{address.city}, {address.state} {address.postal_code}",
+                styles["BodySmall"],
+            )
+        )
+        story.append(Spacer(1, 5))
+    story.append(Paragraph("Project index", styles["Section"]))
+    project_rows = [
+        [
+            Paragraph(project.project_number, styles["BodySmall"]),
+            Paragraph(project.name, styles["BodySmall"]),
+            Paragraph(project.get_status_display(), styles["BodySmall"]),
+        ]
+        for project in client.projects.all().order_by("-created_at")
+    ]
+    if project_rows:
+        story.append(_line_table(project_rows, ["Project", "Name", "Status"], [1.65 * inch, 3.1 * inch, 1.75 * inch], styles))
+    if not client_safe:
+        payments = money(client.payments.filter(voided_at__isnull=True).aggregate(total=Sum("amount"))["total"])
+        expenses = money(client.expenses.filter(voided_at__isnull=True).aggregate(total=Sum("amount"))["total"])
+        story.extend(
+            [
+                Paragraph("Internal financial summary", styles["Section"]),
+                _totals_table(
+                    [("Client payments", payments), ("Project expenses", expenses), ("Collected cash profit", payments - expenses)],
+                    styles,
+                    "Collected cash profit",
+                ),
+            ]
+        )
+    notes = client.record_notes.all()
+    if client_safe:
+        notes = notes.filter(visibility="client")
+    if notes:
+        story.append(Paragraph("Client notes", styles["Section"]))
+        for note in notes:
+            story.append(Paragraph(note.body.replace("\n", "<br/>"), styles["BodySmall"]))
+            story.append(Spacer(1, 5))
+    callback = _watermark("")
+    document.build(story, onFirstPage=callback, onLaterPages=callback)
+    return output.getvalue()
+
+
+def client_packet_bytes(client, client_safe=False):
+    writer = PdfWriter()
+    _append_pdf(writer, _client_packet_summary(client, client_safe=client_safe))
+    for project in client.projects.all().order_by("created_at"):
+        _append_pdf(writer, project_packet_bytes(project, client_safe=client_safe))
     output = io.BytesIO()
     writer.write(output)
     return output.getvalue()

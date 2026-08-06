@@ -227,6 +227,14 @@ textarea.form-control { min-height: 88px; resize: vertical; }
 .filter-bar .field label { color: var(--muted); font: 700 9px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .045em; }
 .filter-bar [hidden] { display: none !important; }
 .filter-bar > .btn { justify-self: start; }
+.ledger-voided { opacity: .68; background: #fff7f7; }
+.ledger-voided strong { text-decoration: line-through; text-decoration-thickness: 1px; }
+.danger-text { color: var(--danger); font-weight: 700; }
+.client-packet-actions { margin: 10px 0 2px; }
+.project-client-group { margin-bottom: 18px; }
+.project-client-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin: 0 4px 7px; }
+.project-client-head h2 { margin: 2px 0 0; font-size: 17px; }
+.project-client-head a:hover h2 { color: var(--blue); }
 .filter-menu { position: relative; }
 .filter-menu > summary { list-style: none; }
 .filter-menu > summary::-webkit-details-marker { display: none; }

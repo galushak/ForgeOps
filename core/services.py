@@ -23,6 +23,8 @@ from .models import (
     DocumentTermSnapshot,
     Invoice,
     InvoiceCredit,
+    Expense,
+    LedgerCorrection,
     Payment,
     PaymentAllocation,
     Project,
@@ -373,6 +375,186 @@ def finalize_payment(payment, balance_before):
         payment.invoice.status = Invoice.Status.PAID if payment.invoice.balance <= 0 else Invoice.Status.SENT_PENDING
         payment.invoice.save(update_fields=["status", "updated_at"])
     record_activity(payment.project, "payment", f"Client payment recorded: ${payment.amount}", str(payment.document))
+
+
+def expected_payment_sales_tax(payment):
+    """Return the tax portion of a payment based on its linked document."""
+    components, document_total = _document_components(payment.document)
+    document_tax = money(
+        sum((amount for (kind, _category, _label), amount in components.items() if kind == PaymentAllocation.Kind.SALES_TAX), Decimal("0"))
+    )
+    if document_total <= 0 or document_tax <= 0:
+        return money(0)
+    applied = min(money(payment.amount), document_total)
+    return money(document_tax * applied / document_total)
+
+
+def payment_allocation_snapshot(payment):
+    return {
+        **ledger_snapshot(payment),
+        "allocations": [
+            {
+                "kind": allocation.kind,
+                "category": allocation.category.name if allocation.category_id else None,
+                "label": allocation.label,
+                "amount": str(allocation.amount),
+            }
+            for allocation in payment.allocations.select_related("category").order_by("pk")
+        ],
+    }
+
+
+@transaction.atomic
+def backfill_payment_sales_tax(payment, reason="Separate imported sales tax from revenue", audit=True):
+    """Reclassify the missing tax portion without changing the payment or document."""
+    payment = Payment.objects.select_for_update().select_related("project", "quote", "invoice").get(pk=payment.pk)
+    expected_tax = expected_payment_sales_tax(payment)
+    existing_tax = money(
+        payment.allocations.filter(kind=PaymentAllocation.Kind.SALES_TAX).aggregate(total=Sum("amount"))["total"]
+    )
+    if expected_tax <= 0 or existing_tax == expected_tax:
+        return False
+    if existing_tax:
+        raise ValueError(f"Payment {payment.pk} already has a different sales-tax allocation and requires manual review.")
+    revenue_allocations = list(payment.allocations.filter(kind=PaymentAllocation.Kind.REVENUE).order_by("pk"))
+    revenue_total = money(sum((allocation.amount for allocation in revenue_allocations), Decimal("0")))
+    if revenue_total < expected_tax:
+        raise ValueError(f"Payment {payment.pk} does not contain enough revenue to reclassify ${expected_tax} of sales tax.")
+    before = payment_allocation_snapshot(payment) if audit else None
+    distributed = money(0)
+    for index, allocation in enumerate(revenue_allocations):
+        reduction = money(expected_tax - distributed) if index == len(revenue_allocations) - 1 else money(expected_tax * allocation.amount / revenue_total)
+        distributed += reduction
+        allocation.amount = money(allocation.amount - reduction)
+        allocation.save(update_fields=["amount", "updated_at"])
+    PaymentAllocation.objects.create(
+        payment=payment,
+        kind=PaymentAllocation.Kind.SALES_TAX,
+        label="Sales Tax Collected",
+        amount=expected_tax,
+    )
+    if audit:
+        LedgerCorrection.objects.create(
+            payment=payment,
+            action=LedgerCorrection.Action.EDIT,
+            reason=reason,
+            before_data=before,
+            after_data=payment_allocation_snapshot(payment),
+        )
+        record_activity(
+            payment.project,
+            "payment_allocation_corrected",
+            f"Payment sales tax separated: ${expected_tax}",
+            reason,
+        )
+    return True
+
+
+def ledger_snapshot(entry):
+    """Return a small, JSON-safe snapshot of a ledger entry for its audit trail."""
+    if isinstance(entry, Payment):
+        return {
+            "date": str(entry.payment_date),
+            "amount": str(entry.amount),
+            "client": entry.client.name,
+            "project": entry.project.name,
+            "document": str(entry.document),
+            "notes": entry.notes,
+            "voided_at": entry.voided_at.isoformat() if entry.voided_at else None,
+            "void_reason": entry.void_reason,
+        }
+    return {
+        "type": entry.expense_type,
+        "date": str(entry.expense_date),
+        "amount": str(entry.amount),
+        "client": entry.client.name if entry.client_id else None,
+        "project": entry.project.name if entry.project_id else None,
+        "vendor": entry.vendor.name if entry.vendor_id else None,
+        "category": entry.category.name,
+        "description": entry.description,
+        "voided_at": entry.voided_at.isoformat() if entry.voided_at else None,
+        "void_reason": entry.void_reason,
+    }
+
+
+def sync_document_payment_status(document):
+    if isinstance(document, Quote) and document.status in [Quote.Status.APPROVED_PENDING, Quote.Status.APPROVED_PAID]:
+        document.status = Quote.Status.APPROVED_PAID if document.balance <= 0 else Quote.Status.APPROVED_PENDING
+        document.save(update_fields=["status", "updated_at"])
+    elif isinstance(document, Invoice) and document.status in [Invoice.Status.SENT_PENDING, Invoice.Status.PAID]:
+        document.status = Invoice.Status.PAID if document.balance <= 0 else Invoice.Status.SENT_PENDING
+        document.save(update_fields=["status", "updated_at"])
+
+
+@transaction.atomic
+def void_payment(payment, reason):
+    payment = Payment.objects.select_for_update().select_related("project", "quote", "invoice").get(pk=payment.pk)
+    if payment.is_voided:
+        raise ValueError("This payment is already voided.")
+    credit = ProjectCredit.objects.filter(source_payment=payment).first()
+    if credit and (credit.applications.exists() or credit.remaining_amount != credit.original_amount):
+        raise ValueError("This payment created a credit that has already been used. Reverse that credit application before voiding the payment.")
+    before = ledger_snapshot(payment)
+    payment.voided_at = timezone.now()
+    payment.void_reason = reason.strip()
+    payment.save(update_fields=["voided_at", "void_reason", "updated_at"])
+    LedgerCorrection.objects.create(
+        payment=payment,
+        action=LedgerCorrection.Action.VOID,
+        reason=reason.strip(),
+        before_data=before,
+        after_data=ledger_snapshot(payment),
+    )
+    sync_document_payment_status(payment.document)
+    record_activity(payment.project, "payment_voided", f"Payment voided: ${payment.amount}", reason.strip())
+    return payment
+
+
+@transaction.atomic
+def reinstate_payment(payment, reason):
+    payment = Payment.objects.select_for_update().select_related("project", "quote", "invoice").get(pk=payment.pk)
+    if not payment.is_voided:
+        raise ValueError("This payment is already active.")
+    before = ledger_snapshot(payment)
+    payment.voided_at = None
+    payment.void_reason = ""
+    payment.save(update_fields=["voided_at", "void_reason", "updated_at"])
+    LedgerCorrection.objects.create(
+        payment=payment,
+        action=LedgerCorrection.Action.REINSTATE,
+        reason=reason.strip(),
+        before_data=before,
+        after_data=ledger_snapshot(payment),
+    )
+    sync_document_payment_status(payment.document)
+    record_activity(payment.project, "payment_reinstated", f"Payment reinstated: ${payment.amount}", reason.strip())
+    return payment
+
+
+@transaction.atomic
+def set_expense_void_state(expense, reason, voided):
+    expense = Expense.objects.select_for_update().select_related("project", "client", "vendor", "category").get(pk=expense.pk)
+    if voided == expense.is_voided:
+        raise ValueError("This expense is already voided." if voided else "This expense is already active.")
+    before = ledger_snapshot(expense)
+    expense.voided_at = timezone.now() if voided else None
+    expense.void_reason = reason.strip() if voided else ""
+    expense.save(update_fields=["voided_at", "void_reason", "updated_at"])
+    LedgerCorrection.objects.create(
+        expense=expense,
+        action=LedgerCorrection.Action.VOID if voided else LedgerCorrection.Action.REINSTATE,
+        reason=reason.strip(),
+        before_data=before,
+        after_data=ledger_snapshot(expense),
+    )
+    if expense.project:
+        record_activity(
+            expense.project,
+            "expense_voided" if voided else "expense_reinstated",
+            f"Expense {'voided' if voided else 'reinstated'}: ${expense.amount}",
+            reason.strip(),
+        )
+    return expense
 
 
 @transaction.atomic

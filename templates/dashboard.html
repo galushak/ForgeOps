@@ -8,7 +8,7 @@
 </div>
 
 <div class="dashboard-grid">
-  <section class="panel metric metric-primary span-4"><span class="metric-label">Revenue this month</span><strong>{{ revenue|currency }}</strong><small>Client payments excluding collected sales tax</small></section>
+  <section class="panel metric metric-primary span-4"><span class="metric-label">Revenue this month</span><strong>{{ revenue|currency }}</strong><small>Gross client payments, including sales tax</small></section>
   <section class="panel metric span-4"><span class="metric-label">Operating expenses</span><strong>{{ project_expenses|add:business_expenses|currency }}</strong><small>{{ project_expenses|currency }} project · {{ business_expenses|currency }} business</small></section>
   <section class="panel metric metric-positive span-4"><span class="metric-label">Net income</span><strong>{{ net_income|currency }}</strong><small>Before the income-tax planning reserve</small></section>
   <section class="panel metric span-4"><span class="metric-label">Sales tax collected</span><strong>{{ tax_collected|currency }}</strong><small>Exact tax allocated from client payments</small></section>

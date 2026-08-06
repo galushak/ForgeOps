@@ -129,6 +129,40 @@ class Vendor(TimestampedModel):
         return self.name
 
 
+class CatalogItem(TimestampedModel):
+    class Kind(models.TextChoices):
+        MATERIAL = "material", "Material or service"
+        LABOR = "labor", "Labor"
+
+    class Unit(models.TextChoices):
+        EACH = "ea", "Each"
+        PIECE = "pc", "Piece"
+        FOOT = "ft", "Foot"
+        HOUR = "hr", "Hour"
+        DAY = "day", "Day"
+        LOT = "lot", "Lot"
+        BOX = "box", "Box"
+        PACK = "pack", "Pack"
+        GALLON = "gal", "Gallon"
+        POUND = "lb", "Pound"
+
+    kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.MATERIAL)
+    name = models.CharField(max_length=160)
+    description = models.CharField(max_length=300, blank=True)
+    unit = models.CharField(max_length=12, choices=Unit.choices, default=Unit.EACH)
+    default_rate = models.DecimalField(max_digits=11, decimal_places=2, default=ZERO)
+    taxable = models.BooleanField(default=True)
+    income_category = models.ForeignKey(AccountingCategory, blank=True, null=True, on_delete=models.SET_NULL)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["kind", "name"]
+        constraints = [models.UniqueConstraint(fields=["kind", "name"], name="uniq_catalog_kind_name")]
+
+    def __str__(self):
+        return self.name
+
+
 class DocumentSequence(models.Model):
     class Kind(models.TextChoices):
         PROJECT = "PROJECT", "Project"
@@ -257,16 +291,16 @@ class Project(TimestampedModel):
 
     @property
     def payments_total(self):
-        return money(self.payments.aggregate(total=Sum("amount"))["total"])
+        return money(self.payments.filter(voided_at__isnull=True).aggregate(total=Sum("amount"))["total"])
 
     @property
     def expenses_total(self):
-        return money(self.expenses.aggregate(total=Sum("amount"))["total"])
+        return money(self.expenses.filter(voided_at__isnull=True).aggregate(total=Sum("amount"))["total"])
 
     @property
     def revenue_total(self):
         return money(
-            PaymentAllocation.objects.filter(payment__project=self, kind=PaymentAllocation.Kind.REVENUE).aggregate(total=Sum("amount"))["total"]
+            PaymentAllocation.objects.filter(payment__project=self, payment__voided_at__isnull=True, kind=PaymentAllocation.Kind.REVENUE).aggregate(total=Sum("amount"))["total"]
         )
 
     @property
@@ -313,6 +347,9 @@ class Quote(TimestampedModel):
     admin_fee_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("10.00"))
     labor_category = models.ForeignKey(
         AccountingCategory, blank=True, null=True, related_name="quotes_labor", on_delete=models.SET_NULL
+    )
+    labor_catalog_item = models.ForeignKey(
+        CatalogItem, blank=True, null=True, related_name="quotes", on_delete=models.SET_NULL
     )
     discount_label = models.CharField(max_length=120, blank=True)
     labor_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=ZERO)
@@ -382,7 +419,7 @@ class Quote(TimestampedModel):
 
     @property
     def payments_total(self):
-        return money(self.payments.aggregate(total=Sum("amount"))["total"])
+        return money(self.payments.filter(voided_at__isnull=True).aggregate(total=Sum("amount"))["total"])
 
     @property
     def balance(self):
@@ -395,8 +432,10 @@ class Quote(TimestampedModel):
 
 class QuoteItem(TimestampedModel):
     quote = models.ForeignKey(Quote, related_name="items", on_delete=models.CASCADE)
+    catalog_item = models.ForeignKey(CatalogItem, blank=True, null=True, related_name="quote_items", on_delete=models.SET_NULL)
     description = models.CharField(max_length=300)
     quantity = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("1.00"))
+    unit = models.CharField(max_length=12, choices=CatalogItem.Unit.choices, default=CatalogItem.Unit.EACH)
     unit_price = models.DecimalField(max_digits=11, decimal_places=2)
     taxable = models.BooleanField(default=True)
     income_category = models.ForeignKey(AccountingCategory, blank=True, null=True, on_delete=models.SET_NULL)
@@ -515,7 +554,7 @@ class Invoice(TimestampedModel):
 
     @property
     def payments_total(self):
-        return money(self.payments.aggregate(total=Sum("amount"))["total"])
+        return money(self.payments.filter(voided_at__isnull=True).aggregate(total=Sum("amount"))["total"])
 
     @property
     def balance(self):
@@ -532,8 +571,10 @@ class Invoice(TimestampedModel):
 
 class InvoiceItem(TimestampedModel):
     invoice = models.ForeignKey(Invoice, related_name="items", on_delete=models.CASCADE)
+    catalog_item = models.ForeignKey(CatalogItem, blank=True, null=True, related_name="invoice_items", on_delete=models.SET_NULL)
     description = models.CharField(max_length=300)
     quantity = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("1.00"))
+    unit = models.CharField(max_length=12, choices=CatalogItem.Unit.choices, default=CatalogItem.Unit.EACH)
     unit_price = models.DecimalField(max_digits=11, decimal_places=2)
     taxable = models.BooleanField(default=True)
     income_category = models.ForeignKey(AccountingCategory, blank=True, null=True, on_delete=models.SET_NULL)
@@ -559,6 +600,7 @@ class InvoiceSurcharge(TimestampedModel):
 class LaborEntry(TimestampedModel):
     project = models.ForeignKey(Project, related_name="labor_entries", on_delete=models.PROTECT)
     invoice = models.ForeignKey(Invoice, related_name="labor_entries", blank=True, null=True, on_delete=models.SET_NULL)
+    catalog_item = models.ForeignKey(CatalogItem, related_name="labor_entries", blank=True, null=True, on_delete=models.SET_NULL)
     work_date = models.DateField(default=timezone.localdate)
     description = models.TextField()
     actual_minutes = models.PositiveIntegerField(help_text="Actual time worked in minutes")
@@ -616,6 +658,8 @@ class Payment(TimestampedModel):
     quote = models.ForeignKey(Quote, related_name="payments", blank=True, null=True, on_delete=models.PROTECT)
     invoice = models.ForeignKey(Invoice, related_name="payments", blank=True, null=True, on_delete=models.PROTECT)
     notes = models.TextField(blank=True)
+    voided_at = models.DateTimeField(blank=True, null=True)
+    void_reason = models.TextField(blank=True)
     attachments = GenericRelation("Attachment", related_query_name="payments")
 
     class Meta:
@@ -640,6 +684,10 @@ class Payment(TimestampedModel):
     @property
     def document(self):
         return self.quote or self.invoice
+
+    @property
+    def is_voided(self):
+        return self.voided_at is not None
 
 
 class PaymentAllocation(TimestampedModel):
@@ -670,6 +718,8 @@ class Expense(TimestampedModel):
     vendor = models.ForeignKey(Vendor, related_name="expenses", blank=True, null=True, on_delete=models.SET_NULL)
     category = models.ForeignKey(AccountingCategory, related_name="expenses", on_delete=models.PROTECT)
     description = models.TextField()
+    voided_at = models.DateTimeField(blank=True, null=True)
+    void_reason = models.TextField(blank=True)
     attachments = GenericRelation("Attachment", related_query_name="expenses")
 
     class Meta:
@@ -687,6 +737,37 @@ class Expense(TimestampedModel):
             raise ValidationError("The selected quote belongs to a different project.")
         if self.invoice_id and self.project_id and self.invoice.project_id != self.project_id:
             raise ValidationError("The selected invoice belongs to a different project.")
+
+    @property
+    def is_voided(self):
+        return self.voided_at is not None
+
+
+class LedgerCorrection(TimestampedModel):
+    class Action(models.TextChoices):
+        EDIT = "edit", "Edited"
+        VOID = "void", "Voided"
+        REINSTATE = "reinstate", "Reinstated"
+
+    payment = models.ForeignKey(Payment, blank=True, null=True, related_name="corrections", on_delete=models.CASCADE)
+    expense = models.ForeignKey(Expense, blank=True, null=True, related_name="corrections", on_delete=models.CASCADE)
+    action = models.CharField(max_length=12, choices=Action.choices)
+    reason = models.TextField()
+    before_data = models.JSONField(default=dict, blank=True)
+    after_data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(Q(payment__isnull=False, expense__isnull=True) | Q(payment__isnull=True, expense__isnull=False)),
+                name="ledger_correction_exactly_one_entry",
+            )
+        ]
+
+    @property
+    def entry(self):
+        return self.payment or self.expense
 
 
 class Note(TimestampedModel):

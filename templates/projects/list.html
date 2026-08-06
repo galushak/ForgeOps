@@ -16,8 +16,15 @@
   </div>
 </div>
 
-<section class="panel">
-  <div class="panel-head"><h2>{{ selected_status_label }}</h2><span class="status status-neutral">{{ projects|length }} shown</span></div>
-  <div class="list">{% for project in projects %}<a class="list-row" href="{% url 'project_detail' project.pk %}"><span><strong>{{ project.name }}</strong><small>{{ project.client.name }} · {{ project.project_number }}</small></span><span class="list-row-right"><span class="status {{ project.status|status_class }}">{{ project.get_status_display }}</span><span>→</span></span></a>{% empty %}<div class="empty"><strong>No projects in this view.</strong>Choose a different filter or create a project.</div>{% endfor %}</div>
+<div class="section-title"><h2>{{ selected_status_label }}</h2><span class="status status-neutral">{{ projects|length }} shown</span></div>
+{% for group in project_groups %}
+<section class="project-client-group" data-client-project-group>
+  <div class="project-client-head"><a href="{% url 'client_detail' group.client.pk %}"><span class="eyebrow">CLIENT</span><h2>{{ group.client.name }}</h2></a><span class="status status-neutral">{{ group.projects|length }} project{{ group.projects|length|pluralize }}</span></div>
+  <div class="panel"><div class="list">
+    {% for project in group.projects %}<a class="list-row" href="{% url 'project_detail' project.pk %}"><span><strong>{{ project.name }}</strong><small>{{ project.project_number }}{% if project.is_support_project %} · Permanent support project{% endif %}</small></span><span class="list-row-right"><span class="status {{ project.status|status_class }}">{{ project.get_status_display }}</span><span>→</span></span></a>{% endfor %}
+  </div></div>
 </section>
+{% empty %}
+<section class="panel"><div class="empty"><strong>No projects in this view.</strong> Choose a different filter or create a project.</div></section>
+{% endfor %}
 {% endblock %}

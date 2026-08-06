@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}Receipt Inbox · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head"><div><a class="back-link" href="{% url 'expense_list' %}">← Ledger</a><span class="eyebrow">LEDGER FILES</span><h1>Receipt inbox</h1><p>Every ledger receipt in one place, plus active transactions that still need documentation.</p></div></div>
+<form class="panel filter-bar" method="get"><div class="field"><label for="receipt-q">Search receipts</label><input class="form-control" id="receipt-q" name="q" value="{{ query }}" placeholder="Vendor, client, project, filename…"></div><button class="btn btn-secondary" type="submit">Search</button>{% if query %}<a class="btn btn-quiet" href="{% url 'receipt_inbox' %}">Clear</a>{% endif %}</form>
+
+<div class="section-title"><h2>Missing receipts</h2><span class="status status-neutral">{{ missing_rows|length }}</span></div>
+<section class="panel"><div class="list">{% for row in missing_rows %}<div class="list-row"><span><strong>{{ row.source }}</strong><small>{{ row.date|date:'M j, Y' }} · {{ row.amount|currency }}</small></span><a class="btn btn-primary btn-small" href="{{ row.attach_url }}">Attach receipt</a></div>{% empty %}<div class="empty">Every matching active transaction has a receipt.</div>{% endfor %}</div></section>
+
+<div class="section-title"><h2>Receipt files</h2><span class="status status-neutral">{{ receipt_rows|length }}</span></div>
+<section class="panel"><div class="list">{% for row in receipt_rows %}<div class="list-row {% if row.entry.is_voided %}ledger-voided{% endif %}"><span><strong>{{ row.receipt.label|default:row.receipt.file.name|file_basename }}</strong><small>{{ row.source }} · {{ row.date|date:'M j, Y' }} · {{ row.amount|currency }}{% if row.entry.is_voided %} · Voided entry{% endif %}</small></span><div class="list-row-right"><a class="btn btn-secondary btn-small" href="{{ row.receipt.file.url }}" target="_blank" rel="noopener">Open</a><a class="btn btn-quiet btn-small" href="{{ row.attach_url }}">Manage</a></div></div>{% empty %}<div class="empty">No matching receipt files.</div>{% endfor %}</div></section>
+{% endblock %}

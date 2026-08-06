@@ -12,17 +12,21 @@ from django.template.loader import get_template
 from django.test import Client as TestClient, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from pypdf import PdfReader
 
 from .models import (
     AccountingCategory,
     BusinessProfile,
+    CatalogItem,
     Client,
     Expense,
     Invoice,
     InvoiceItem,
     InvoiceSurcharge,
     LaborEntry,
+    LedgerCorrection,
     Payment,
+    PaymentAllocation,
     Project,
     ProjectCredit,
     Quote,
@@ -32,8 +36,17 @@ from .models import (
     TermClause,
     Vendor,
 )
-from .pdfs import invoice_pdf_bytes, project_packet_bytes, quote_pdf_bytes
-from .services import finalize_payment, issue_invoice, issue_quote, seed_defaults
+from .pdfs import client_packet_bytes, invoice_pdf_bytes, project_packet_bytes, quote_pdf_bytes
+from .services import (
+    backfill_payment_sales_tax,
+    expected_payment_sales_tax,
+    finalize_payment,
+    issue_invoice,
+    issue_quote,
+    reinstate_payment,
+    seed_defaults,
+    void_payment,
+)
 from .forms import InvoiceForm, LaborEntryForm, QuoteForm, SetupForm
 
 
@@ -222,6 +235,10 @@ class ForgeOpsCoreTests(TestCase):
         year = web.get(reverse("reports"), {"range": "year", "year": 2026})
         self.assertContains(year, 'data-report-field="month" hidden')
         self.assertContains(year, 'data-report-field="quarter" hidden')
+        self.assertEqual(year.context["selected_month"], timezone.localdate().month)
+        default_report = web.get(reverse("reports"))
+        self.assertEqual(default_report.context["range_kind"], "month")
+        self.assertEqual(default_report.context["selected_month"], timezone.localdate().month)
 
     def test_dashboard_excludes_support_projects_and_tax_payments_from_operations(self):
         support_client = Client.objects.create(name="Support Only Client")
@@ -295,12 +312,18 @@ class ForgeOpsCoreTests(TestCase):
         self.assertIn("hours", billable.errors)
 
     def test_projects_page_uses_filter_menu_and_global_new_project_button(self):
+        second_client = Client.objects.create(name="Acme Office")
+        second_project = second_client.projects.get(is_support_project=True)
         web = TestClient()
         web.force_login(self.user)
         response = web.get(reverse("project_list"))
         self.assertContains(response, "Filter: All active")
         self.assertContains(response, reverse("project_create_global"))
         self.assertNotContains(response, 'class="tabs"')
+        self.assertEqual(len(response.context["project_groups"]), 2)
+        self.assertEqual(response.context["project_groups"][0]["client"], second_client)
+        self.assertContains(response, "data-client-project-group", count=2)
+        self.assertContains(response, second_project.project_number)
 
     def test_global_project_form_creates_address_inline_without_removed_fields(self):
         web = TestClient()
@@ -630,7 +653,16 @@ class ForgeOpsCoreTests(TestCase):
         self.assertTrue(invoice.labor_taxable)
         self.assertEqual(invoice.total, Decimal("107.00"))
         self.assertEqual(invoice.balance, Decimal("0.00"))
-        self.assertEqual(Payment.objects.get().amount, Decimal("107.00"))
+        imported_payment = Payment.objects.get()
+        self.assertEqual(imported_payment.amount, Decimal("107.00"))
+        self.assertEqual(
+            imported_payment.allocations.get(kind=PaymentAllocation.Kind.SALES_TAX).amount,
+            Decimal("7.00"),
+        )
+        self.assertEqual(
+            imported_payment.allocations.get(kind=PaymentAllocation.Kind.REVENUE).amount,
+            Decimal("100.00"),
+        )
 
     def test_draft_document_lines_can_be_deleted_but_issued_lines_are_protected(self):
         web = TestClient()
@@ -753,6 +785,288 @@ class ForgeOpsCoreTests(TestCase):
         self.assertEqual(duplicate.surcharges.get().amount, Decimal("50.00"))
         self.assertEqual(list(duplicate.selected_terms.all()), [term])
         self.assertContains(web.get(reverse("quote_detail", args=[duplicate.pk])), "Duplicate as option")
+
+
+    def test_payment_void_and_reinstate_are_audited_and_change_live_totals(self):
+        quote = Quote.objects.create(
+            project=self.project,
+            name="Correction test",
+            status=Quote.Status.APPROVED_PENDING,
+            labor_minimum_hours=Decimal("0.00"),
+        )
+        QuoteItem.objects.create(
+            quote=quote,
+            description="Hardware",
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            taxable=False,
+            income_category=self.material_category,
+        )
+        balance_before = quote.balance
+        payment = Payment.objects.create(
+            payment_date=timezone.localdate(),
+            amount=quote.parts_total,
+            client=self.client_record,
+            project=self.project,
+            quote=quote,
+        )
+        finalize_payment(payment, balance_before)
+        self.assertEqual(quote.balance, Decimal("0.00"))
+
+        void_payment(payment, "Duplicate bank deposit")
+        payment.refresh_from_db()
+        quote.refresh_from_db()
+        self.assertTrue(payment.is_voided)
+        self.assertEqual(quote.balance, quote.parts_total)
+        self.assertEqual(quote.status, Quote.Status.APPROVED_PENDING)
+        self.assertEqual(payment.corrections.get().action, LedgerCorrection.Action.VOID)
+
+        reinstate_payment(payment, "Bank confirmed the deposit")
+        payment.refresh_from_db()
+        quote.refresh_from_db()
+        self.assertFalse(payment.is_voided)
+        self.assertEqual(quote.balance, Decimal("0.00"))
+        self.assertEqual(payment.corrections.count(), 2)
+
+    def test_legacy_payment_sales_tax_can_be_backfilled_without_changing_cash(self):
+        quote = Quote.objects.create(project=self.project, name="Imported taxable quote", labor_minimum_hours=Decimal("0.00"))
+        QuoteItem.objects.create(
+            quote=quote,
+            description="Taxable equipment",
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            taxable=True,
+            income_category=self.material_category,
+        )
+        payment = Payment.objects.create(
+            amount=quote.parts_total,
+            client=self.client_record,
+            project=self.project,
+            quote=quote,
+        )
+        PaymentAllocation.objects.create(
+            payment=payment,
+            kind=PaymentAllocation.Kind.REVENUE,
+            category=self.material_category,
+            label="Imported ledger income",
+            amount=payment.amount,
+        )
+        self.assertEqual(expected_payment_sales_tax(payment), Decimal("7.00"))
+
+        self.assertTrue(backfill_payment_sales_tax(payment, reason="Test legacy repair"))
+
+        self.assertEqual(payment.allocations.get(kind=PaymentAllocation.Kind.SALES_TAX).amount, Decimal("7.00"))
+        self.assertEqual(payment.allocations.get(kind=PaymentAllocation.Kind.REVENUE).amount, payment.amount - Decimal("7.00"))
+        self.assertEqual(sum(allocation.amount for allocation in payment.allocations.all()), payment.amount)
+        self.assertEqual(payment.corrections.get().action, LedgerCorrection.Action.EDIT)
+
+    def test_void_payment_is_blocked_after_generated_credit_is_used(self):
+        quote = Quote.objects.create(project=self.project, name="Credit source", labor_minimum_hours=Decimal("0.00"))
+        QuoteItem.objects.create(
+            quote=quote,
+            description="Hardware",
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            taxable=False,
+            income_category=self.material_category,
+        )
+        balance_before = quote.balance
+        payment = Payment.objects.create(
+            amount=Decimal("150.00"),
+            client=self.client_record,
+            project=self.project,
+            quote=quote,
+        )
+        finalize_payment(payment, balance_before)
+        credit = ProjectCredit.objects.get(source_payment=payment)
+        invoice = Invoice.objects.create(project=self.project)
+        from .services import apply_project_credit
+
+        apply_project_credit(invoice, credit, Decimal("10.00"), "Apply prior overpayment")
+        with self.assertRaisesMessage(ValueError, "already been used"):
+            void_payment(payment, "Incorrect source")
+
+    def test_catalog_item_populates_quote_line_defaults(self):
+        catalog = CatalogItem.objects.create(
+            kind=CatalogItem.Kind.MATERIAL,
+            name="Managed switch",
+            description="Eight-port managed network switch",
+            unit=CatalogItem.Unit.EACH,
+            default_rate=Decimal("129.00"),
+            income_category=self.material_category,
+        )
+        quote = Quote.objects.create(project=self.project, name="Catalog quote", labor_category=self.labor_category)
+        web = TestClient()
+        web.force_login(self.user)
+        response = web.post(
+            reverse("quote_item_create", args=[quote.pk]),
+            {
+                "catalog_item": catalog.pk,
+                "description": "",
+                "quantity": "2.00",
+                "unit": CatalogItem.Unit.EACH,
+                "unit_price": "",
+                "income_category": "",
+                "taxable": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("quote_detail", args=[quote.pk]))
+        item = quote.items.get()
+        self.assertEqual(item.description, catalog.description)
+        self.assertEqual(item.unit_price, Decimal("129.00"))
+        self.assertEqual(item.income_category, self.material_category)
+
+    def test_ledger_search_receipt_inbox_and_client_packet(self):
+        expense = Expense.objects.create(
+            expense_type=Expense.Type.PROJECT,
+            amount=Decimal("35.00"),
+            client=self.client_record,
+            project=self.project,
+            vendor=Vendor.objects.create(name="Network Supply House"),
+            category=AccountingCategory.objects.filter(group=AccountingCategory.Group.COGS).first(),
+            description="Patch cables",
+        )
+        web = TestClient()
+        web.force_login(self.user)
+        ledger = web.get(reverse("expense_list"), {"q": "Network Supply"})
+        self.assertContains(ledger, expense.description)
+        inbox = web.get(reverse("receipt_inbox"))
+        self.assertContains(inbox, "Network Supply House")
+        self.assertContains(inbox, "Attach receipt")
+        self.assertTrue(client_packet_bytes(self.client_record).startswith(b"%PDF"))
+        self.assertEqual(web.get(reverse("client_packet", args=[self.client_record.pk, "client"])).status_code, 200)
+
+    def test_expanded_reports_render_html_and_pdf(self):
+        LaborEntry.objects.create(
+            project=self.project,
+            description="Diagnostics",
+            actual_minutes=60,
+            hourly_rate=Decimal("100.00"),
+            category=self.labor_category,
+        )
+        quote = Quote.objects.create(project=self.project, name="Gross receipts report test")
+        payment = Payment.objects.create(
+            payment_date=timezone.localdate(),
+            amount=Decimal("107.00"),
+            client=self.client_record,
+            project=self.project,
+            quote=quote,
+        )
+        PaymentAllocation.objects.create(
+            payment=payment,
+            kind=PaymentAllocation.Kind.REVENUE,
+            category=self.material_category,
+            label="Client materials",
+            amount=Decimal("100.00"),
+        )
+        PaymentAllocation.objects.create(
+            payment=payment,
+            kind=PaymentAllocation.Kind.SALES_TAX,
+            label="Sales Tax Collected",
+            amount=Decimal("7.00"),
+        )
+        web = TestClient()
+        web.force_login(self.user)
+        params = {"range": "month", "year": timezone.localdate().year, "month": timezone.localdate().month}
+        page = web.get(reverse("reports"), params)
+        self.assertEqual(page.context["revenue"], Decimal("107.00"))
+        self.assertEqual(page.context["tax_collected"], Decimal("7.00"))
+        self.assertEqual(page.context["exact_sales_reserve"], Decimal("7.00"))
+        self.assertEqual(page.context["conservative_sales_reserve"], Decimal("7.49"))
+        self.assertEqual(page.context["sales_tax_remaining"], Decimal("7.49"))
+        self.assertEqual(sum(row["total"] for row in page.context["income_by_category"]), Decimal("107.00"))
+        self.assertEqual(web.get(reverse("dashboard")).context["revenue"], Decimal("107.00"))
+        self.assertContains(page, "Pipeline status")
+        self.assertContains(page, "Client summaries")
+        self.assertContains(page, "Detailed project breakdown")
+        self.assertContains(page, "Exact sales-tax reserve")
+        self.assertContains(page, "Conservative sales-tax reserve")
+        self.assertContains(page, "Sales-tax reserve movement")
+        self.assertContains(page, "Sales tax paid")
+        self.assertContains(page, "Income tax paid")
+        self.assertContains(page, "Total tax paid")
+        pdf = web.get(reverse("report_pdf"), params)
+        self.assertEqual(pdf.status_code, 200)
+        pdf_text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(b"".join(pdf.streaming_content))).pages)
+        self.assertIn("Exact sales-tax reserve", pdf_text)
+        self.assertIn("Conservative sales-tax reserve", pdf_text)
+        self.assertIn("Sales-tax reserve movement", pdf_text)
+        self.assertIn("Sales tax paid", pdf_text)
+        self.assertIn("Income tax paid", pdf_text)
+        self.assertIn("Total tax paid", pdf_text)
+
+    def test_month_quarter_and_year_report_totals_reconcile(self):
+        year = timezone.localdate().year
+        quote = Quote.objects.create(project=self.project, name="Period reconciliation")
+        for month, amount, revenue_amount, tax_amount in [
+            (3, Decimal("107.00"), Decimal("100.00"), Decimal("7.00")),
+            (8, Decimal("53.00"), Decimal("43.00"), Decimal("10.00")),
+        ]:
+            payment = Payment.objects.create(
+                payment_date=timezone.localdate().replace(year=year, month=month, day=15),
+                amount=amount,
+                client=self.client_record,
+                project=self.project,
+                quote=quote,
+            )
+            PaymentAllocation.objects.create(
+                payment=payment,
+                kind=PaymentAllocation.Kind.REVENUE,
+                category=self.material_category,
+                label="Client materials",
+                amount=revenue_amount,
+            )
+            PaymentAllocation.objects.create(
+                payment=payment,
+                kind=PaymentAllocation.Kind.SALES_TAX,
+                label="Sales Tax Collected",
+                amount=tax_amount,
+            )
+        Expense.objects.create(
+            expense_type=Expense.Type.BUSINESS,
+            expense_date=timezone.localdate().replace(year=year, month=6, day=15),
+            amount=Decimal("5.00"),
+            category=AccountingCategory.objects.get(name="Sales Tax Paid"),
+            description="Quarterly sales-tax payment",
+        )
+        Expense.objects.create(
+            expense_type=Expense.Type.BUSINESS,
+            expense_date=timezone.localdate().replace(year=year, month=7, day=15),
+            amount=Decimal("20.00"),
+            category=AccountingCategory.objects.get(name="General Business Expenses"),
+            description="Operating expense",
+        )
+
+        web = TestClient()
+        web.force_login(self.user)
+        months = [
+            web.get(reverse("reports"), {"range": "month", "year": year, "month": month}).context
+            for month in range(1, 13)
+        ]
+        quarters = [
+            web.get(reverse("reports"), {"range": "quarter", "year": year, "quarter": quarter}).context
+            for quarter in range(1, 5)
+        ]
+        annual = web.get(reverse("reports"), {"range": "year", "year": year}).context
+        additive_fields = [
+            "revenue",
+            "total_expenses",
+            "net_income",
+            "tax_collected",
+            "exact_sales_reserve",
+            "conservative_sales_reserve",
+            "sales_tax_paid",
+            "sales_tax_remaining",
+            "income_tax_estimate",
+            "income_tax_paid",
+            "income_tax_remaining",
+            "total_tax_remaining",
+            "estimated_after_tax_profit",
+            "invoice_total",
+        ]
+        for field in additive_fields:
+            self.assertEqual(sum(context[field] for context in months), annual[field], f"monthly {field}")
+            self.assertEqual(sum(context[field] for context in quarters), annual[field], f"quarterly {field}")
 
 
 class FirstRunTest(TestCase):

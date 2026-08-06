@@ -14,7 +14,7 @@
     {% if show_receipts %}<div class="field"><label for="id_receipts">Receipts and supporting files</label><input class="file-input" id="id_receipts" name="receipts" type="file" multiple accept="image/*,.pdf" capture="environment"><small>You can upload multiple photos or PDFs.</small></div>{% endif %}
     {% if surcharge_datalist %}<datalist id="surcharge-labels"><option value="Tariff"><option value="Memory surcharge"><option value="Component surcharge"></datalist>{% endif %}
     {% for error in form.non_field_errors %}<div class="field-error">{{ error }}</div>{% endfor %}
-    <div class="form-actions"><a class="btn btn-secondary" href="{{ cancel_url }}">Cancel</a><button class="btn btn-primary" type="submit">Save</button></div>
+    <div class="form-actions"><a class="btn btn-secondary" href="{{ cancel_url }}">Cancel</a><button class="btn {% if danger_submit %}btn-danger{% else %}btn-primary{% endif %}" type="submit">{{ submit_label|default:'Save' }}</button></div>
   </form>
 </section>
 {% if existing_files %}
@@ -26,4 +26,5 @@
 </div></section>
 {% endif %}
 {% if delete_url %}<form method="post" action="{{ delete_url }}" class="destructive-form" data-confirm="Permanently {{ delete_label|lower }}? This cannot be undone.">{% csrf_token %}<button class="btn btn-danger" type="submit">{{ delete_label|default:'Delete' }}</button></form>{% endif %}
+{% if catalog_data %}{{ catalog_data|json_script:"catalog-data" }}{% endif %}
 {% endblock %}

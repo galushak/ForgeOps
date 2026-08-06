@@ -11,6 +11,7 @@ from .models import (
     AccountingCategory,
     Attachment,
     BusinessProfile,
+    CatalogItem,
     Client,
     ClientAddress,
     DiscountProgram,
@@ -233,6 +234,7 @@ class QuoteForm(StyledFormMixin, forms.ModelForm):
         fields = [
             "name",
             "group",
+            "labor_catalog_item",
             "estimated_labor_hours",
             "labor_rate",
             "labor_minimum_hours",
@@ -259,6 +261,10 @@ class QuoteForm(StyledFormMixin, forms.ModelForm):
         self.fields["labor_category"].queryset = AccountingCategory.objects.filter(
             group=AccountingCategory.Group.INCOME, active=True
         )
+        self.fields["labor_catalog_item"].queryset = CatalogItem.objects.filter(
+            kind=CatalogItem.Kind.LABOR, active=True
+        )
+        self.fields["labor_catalog_item"].label = "Labor template"
         self.fields["labor_category"].required = True
         self.fields["discount_program"].queryset = DiscountProgram.objects.filter(active=True)
         self.fields["selected_terms"].queryset = TermClause.objects.filter(
@@ -304,17 +310,37 @@ class QuoteForm(StyledFormMixin, forms.ModelForm):
 class QuoteItemForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = QuoteItem
-        fields = ["description", "quantity", "unit_price", "taxable", "income_category"]
+        fields = ["catalog_item", "description", "quantity", "unit", "unit_price", "taxable", "income_category"]
 
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["catalog_item"].queryset = CatalogItem.objects.filter(kind=CatalogItem.Kind.MATERIAL, active=True)
+        self.fields["catalog_item"].label = "Catalog item (optional)"
+        self.fields["description"].required = False
+        self.fields["unit_price"].required = False
         self.fields["income_category"].queryset = AccountingCategory.objects.filter(
             group=AccountingCategory.Group.INCOME, active=True
         )
-        self.fields["income_category"].required = True
+        self.fields["income_category"].required = False
         if not self.instance.pk:
             self.initial["income_category"] = AccountingCategory.objects.filter(name="Client Materials", active=True).first()
         self._style_fields()
+
+    def clean(self):
+        cleaned = super().clean()
+        catalog = cleaned.get("catalog_item")
+        if catalog:
+            cleaned["description"] = cleaned.get("description") or catalog.description or catalog.name
+            cleaned["unit_price"] = cleaned.get("unit_price") if cleaned.get("unit_price") is not None else catalog.default_rate
+            cleaned["unit"] = cleaned.get("unit") or catalog.unit
+            cleaned["income_category"] = cleaned.get("income_category") or catalog.income_category
+        if not cleaned.get("description"):
+            self.add_error("description", "Enter a description or choose a catalog item.")
+        if cleaned.get("unit_price") is None:
+            self.add_error("unit_price", "Enter a unit price or choose a catalog item.")
+        if not cleaned.get("income_category"):
+            self.add_error("income_category", "Choose an income category or a catalog item with a default category.")
+        return cleaned
 
 
 class SurchargeForm(StyledFormMixin, forms.ModelForm):
@@ -371,17 +397,37 @@ class InvoiceForm(StyledFormMixin, forms.ModelForm):
 class InvoiceItemForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = InvoiceItem
-        fields = ["description", "quantity", "unit_price", "taxable", "income_category"]
+        fields = ["catalog_item", "description", "quantity", "unit", "unit_price", "taxable", "income_category"]
 
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["catalog_item"].queryset = CatalogItem.objects.filter(kind=CatalogItem.Kind.MATERIAL, active=True)
+        self.fields["catalog_item"].label = "Catalog item (optional)"
+        self.fields["description"].required = False
+        self.fields["unit_price"].required = False
         self.fields["income_category"].queryset = AccountingCategory.objects.filter(
             group=AccountingCategory.Group.INCOME, active=True
         )
-        self.fields["income_category"].required = True
+        self.fields["income_category"].required = False
         if not self.instance.pk:
             self.initial["income_category"] = AccountingCategory.objects.filter(name="Client Materials", active=True).first()
         self._style_fields()
+
+    def clean(self):
+        cleaned = super().clean()
+        catalog = cleaned.get("catalog_item")
+        if catalog:
+            cleaned["description"] = cleaned.get("description") or catalog.description or catalog.name
+            cleaned["unit_price"] = cleaned.get("unit_price") if cleaned.get("unit_price") is not None else catalog.default_rate
+            cleaned["unit"] = cleaned.get("unit") or catalog.unit
+            cleaned["income_category"] = cleaned.get("income_category") or catalog.income_category
+        if not cleaned.get("description"):
+            self.add_error("description", "Enter a description or choose a catalog item.")
+        if cleaned.get("unit_price") is None:
+            self.add_error("unit_price", "Enter a unit price or choose a catalog item.")
+        if not cleaned.get("income_category"):
+            self.add_error("income_category", "Choose an income category or a catalog item with a default category.")
+        return cleaned
 
 
 class InvoiceSurchargeForm(SurchargeForm):
@@ -394,7 +440,7 @@ class LaborEntryForm(StyledFormMixin, forms.ModelForm):
 
     class Meta:
         model = LaborEntry
-        fields = ["work_date", "description", "hours", "billable_hours_override", "hourly_rate", "category", "billable"]
+        fields = ["catalog_item", "work_date", "description", "hours", "billable_hours_override", "hourly_rate", "category", "billable"]
         widgets = {
             "work_date": forms.DateInput(attrs={"type": "date"}),
             "description": forms.Textarea(attrs={"rows": 3}),
@@ -402,10 +448,13 @@ class LaborEntryForm(StyledFormMixin, forms.ModelForm):
 
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["catalog_item"].queryset = CatalogItem.objects.filter(kind=CatalogItem.Kind.LABOR, active=True)
+        self.fields["catalog_item"].label = "Labor template (optional)"
+        self.fields["description"].required = False
         self.fields["category"].queryset = AccountingCategory.objects.filter(
             group=AccountingCategory.Group.INCOME, active=True
         )
-        self.fields["category"].required = True
+        self.fields["category"].required = False
         if self.instance.pk:
             self.initial["hours"] = self.instance.actual_hours
         elif project:
@@ -415,6 +464,15 @@ class LaborEntryForm(StyledFormMixin, forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        catalog = cleaned.get("catalog_item")
+        if catalog:
+            cleaned["description"] = cleaned.get("description") or catalog.description or catalog.name
+            cleaned["hourly_rate"] = cleaned.get("hourly_rate") or catalog.default_rate
+            cleaned["category"] = cleaned.get("category") or catalog.income_category
+        if not cleaned.get("description"):
+            self.add_error("description", "Describe the work or choose a labor template.")
+        if not cleaned.get("category"):
+            self.add_error("category", "Choose an income category or a labor template with a default category.")
         if cleaned.get("billable") and cleaned.get("hours") == Decimal("0.00"):
             self.add_error("hours", "Billable labor must include actual time.")
         return cleaned
@@ -429,6 +487,7 @@ class LaborEntryForm(StyledFormMixin, forms.ModelForm):
 
 class QuickLaborForm(StyledFormMixin, forms.Form):
     project = forms.ModelChoiceField(queryset=Project.objects.none())
+    catalog_item = forms.ModelChoiceField(queryset=CatalogItem.objects.none(), required=False, label="Labor template (optional)")
     work_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
     description = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}))
     hours = forms.DecimalField(max_digits=6, decimal_places=2, min_value=Decimal("0.00"))
@@ -437,16 +496,27 @@ class QuickLaborForm(StyledFormMixin, forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["description"].required = False
         self.fields["project"].queryset = Project.objects.exclude(
             status__in=[Project.Status.COMPLETED, Project.Status.ARCHIVED, Project.Status.CANCELLED]
         ).select_related("client")
+        self.fields["catalog_item"].queryset = CatalogItem.objects.filter(kind=CatalogItem.Kind.LABOR, active=True)
         self.fields["category"].queryset = AccountingCategory.objects.filter(group=AccountingCategory.Group.INCOME, active=True)
+        self.fields["category"].required = False
         self.fields["category"].initial = AccountingCategory.objects.filter(name="Client Labor", active=True).first()
         self.fields["work_date"].initial = timezone.localdate()
         self._style_fields()
 
     def clean(self):
         cleaned = super().clean()
+        catalog = cleaned.get("catalog_item")
+        if catalog:
+            cleaned["description"] = cleaned.get("description") or catalog.description or catalog.name
+            cleaned["category"] = cleaned.get("category") or catalog.income_category
+        if not cleaned.get("description"):
+            self.add_error("description", "Describe the work or choose a labor template.")
+        if not cleaned.get("category"):
+            self.add_error("category", "Choose an income category or a labor template with a default category.")
         if cleaned.get("billable") and cleaned.get("hours") == Decimal("0.00"):
             self.add_error("hours", "Billable labor must include actual time.")
         return cleaned
@@ -466,6 +536,12 @@ class PaymentForm(StyledFormMixin, forms.ModelForm):
 class ExpenseForm(StyledFormMixin, forms.ModelForm):
     vendor_choice = forms.ChoiceField(label="Vendor")
     new_vendor_name = forms.CharField(required=False, max_length=160, label="New vendor name")
+    correction_reason = forms.CharField(
+        required=False,
+        label="Correction reason",
+        help_text="Required when changing an existing ledger entry. The previous values remain in its audit history.",
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
 
     class Meta:
         model = Expense
@@ -480,12 +556,17 @@ class ExpenseForm(StyledFormMixin, forms.ModelForm):
             "new_vendor_name",
             "category",
             "description",
+            "correction_reason",
         ]
         widgets = {"expense_date": forms.DateInput(attrs={"type": "date"}), "description": forms.Textarea(attrs={"rows": 3})}
 
     def __init__(self, *args, expense_type=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.expense_type = expense_type or getattr(self.instance, "expense_type", None)
+        if self.instance.pk:
+            self.fields["correction_reason"].required = True
+        else:
+            self.fields.pop("correction_reason", None)
         vendor_queryset = Vendor.objects.filter(active=True)
         if self.instance.pk and self.instance.vendor_id:
             vendor_queryset = Vendor.objects.filter(Q(active=True) | Q(pk=self.instance.vendor_id))
@@ -617,7 +698,9 @@ class ApplyProjectCreditForm(StyledFormMixin, forms.Form):
 
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["project_credit"].queryset = ProjectCredit.objects.filter(project=project, remaining_amount__gt=0)
+        self.fields["project_credit"].queryset = ProjectCredit.objects.filter(
+            project=project, remaining_amount__gt=0, source_payment__voided_at__isnull=True
+        )
         self._style_fields()
 
 
@@ -625,6 +708,32 @@ class CategoryForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = AccountingCategory
         fields = ["group", "name", "active", "sort_order"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._style_fields()
+
+
+class CatalogItemForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = CatalogItem
+        fields = ["kind", "name", "description", "unit", "default_rate", "taxable", "income_category", "active"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["default_rate"].label = "Default unit price or hourly rate"
+        self.fields["income_category"].queryset = AccountingCategory.objects.filter(
+            group=AccountingCategory.Group.INCOME, active=True
+        )
+        self._style_fields()
+
+
+class LedgerCorrectionForm(StyledFormMixin, forms.Form):
+    reason = forms.CharField(
+        min_length=3,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Required. This explanation is stored permanently in the ledger audit history.",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

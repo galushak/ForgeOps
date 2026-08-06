@@ -36,7 +36,7 @@
 
 <section class="panel document-lines">
   <div class="panel-head"><div><h2>Equipment and materials</h2><small class="muted">Accounting category is selected on each line item.</small></div>{% if not quote.is_issued %}<a class="btn btn-primary btn-small" href="{% url 'quote_item_create' quote.pk %}">Add item</a>{% endif %}</div>
-  <div class="table-wrap"><table class="data-table"><thead><tr><th>Description</th><th>Category</th><th>Qty</th><th class="number">Unit</th><th class="number">Total</th>{% if not quote.is_issued %}<th class="number">Actions</th>{% endif %}</tr></thead><tbody>{% for item in quote.items.all %}<tr><td>{% if not quote.is_issued %}<a href="{% url 'quote_item_edit' quote.pk item.pk %}"><strong>{{ item.description }}</strong></a>{% else %}<strong>{{ item.description }}</strong>{% endif %}</td><td><small>{{ item.income_category|default:'Uncategorized' }}</small></td><td>{{ item.quantity }}</td><td class="number">{{ item.unit_price|currency }}</td><td class="number">{{ item.line_total|currency }}</td>{% if not quote.is_issued %}<td><div class="row-actions"><a class="btn btn-quiet btn-small" href="{% url 'quote_item_edit' quote.pk item.pk %}">Edit</a><form method="post" action="{% url 'quote_item_delete' quote.pk item.pk %}" data-confirm="Delete this quote item?">{% csrf_token %}<button class="btn btn-danger btn-small" type="submit">Delete</button></form></div></td>{% endif %}</tr>{% empty %}<tr><td colspan="{% if quote.is_issued %}5{% else %}6{% endif %}" class="empty">No equipment or material lines yet.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="table-wrap"><table class="data-table"><thead><tr><th>Description</th><th>Category</th><th>Qty</th><th>Unit</th><th class="number">Rate</th><th class="number">Total</th>{% if not quote.is_issued %}<th class="number">Actions</th>{% endif %}</tr></thead><tbody>{% for item in quote.items.all %}<tr><td>{% if not quote.is_issued %}<a href="{% url 'quote_item_edit' quote.pk item.pk %}"><strong>{{ item.description }}</strong></a>{% else %}<strong>{{ item.description }}</strong>{% endif %}{% if item.catalog_item %}<br><small class="muted">Catalog: {{ item.catalog_item.name }}</small>{% endif %}</td><td><small>{{ item.income_category|default:'Uncategorized' }}</small></td><td>{{ item.quantity }}</td><td>{{ item.get_unit_display }}</td><td class="number">{{ item.unit_price|currency }}</td><td class="number">{{ item.line_total|currency }}</td>{% if not quote.is_issued %}<td><div class="row-actions"><a class="btn btn-quiet btn-small" href="{% url 'quote_item_edit' quote.pk item.pk %}">Edit</a><form method="post" action="{% url 'quote_item_delete' quote.pk item.pk %}" data-confirm="Delete this quote item?">{% csrf_token %}<button class="btn btn-danger btn-small" type="submit">Delete</button></form></div></td>{% endif %}</tr>{% empty %}<tr><td colspan="{% if quote.is_issued %}6{% else %}7{% endif %}" class="empty">No equipment or material lines yet.</td></tr>{% endfor %}</tbody></table></div>
   {% if not quote.is_issued %}<div class="panel-body"><a class="btn btn-secondary btn-small" href="{% url 'quote_surcharge_create' quote.pk %}">Add vendor surcharge</a></div>{% endif %}
 </section>
 
@@ -46,6 +46,7 @@
   <div class="panel-head"><div><h2>Estimated labor</h2><small class="muted">Labor is estimated as its own line and is billed after the work is complete.</small></div></div>
   {% if quote_form %}
   <div class="editor-grid editor-grid-4 labor-estimate-fields">
+    {% include 'generic/field.html' with field=quote_form.labor_catalog_item %}
     {% include 'generic/field.html' with field=quote_form.estimated_labor_hours %}
     {% include 'generic/field.html' with field=quote_form.labor_rate %}
     {% include 'generic/field.html' with field=quote_form.labor_minimum_hours %}
@@ -53,7 +54,7 @@
   </div>
   <div class="labor-estimate-preview"><span>Current billed estimate</span><strong>{{ quote.estimated_billable_hours }} hrs · {{ quote.labor_subtotal|currency }}</strong></div>
   {% else %}
-  <div class="table-wrap"><table class="data-table"><thead><tr><th>Description</th><th>Category</th><th class="number">Hours</th><th class="number">Rate</th><th class="number">Amount</th></tr></thead><tbody><tr><td><strong>Estimated labor</strong><br><small>{{ quote.labor_minimum_hours }} hour minimum</small></td><td>{{ quote.labor_category|default:'Uncategorized' }}</td><td class="number">{{ quote.estimated_billable_hours }}</td><td class="number">{{ quote.labor_rate|currency }}</td><td class="number">{{ quote.labor_subtotal|currency }}</td></tr></tbody></table></div>
+  <div class="table-wrap"><table class="data-table"><thead><tr><th>Description</th><th>Category</th><th class="number">Hours</th><th class="number">Rate</th><th class="number">Amount</th></tr></thead><tbody><tr><td><strong>{{ quote.labor_catalog_item.name|default:'Estimated labor' }}</strong><br><small>{{ quote.labor_minimum_hours }} hour minimum</small></td><td>{{ quote.labor_category|default:'Uncategorized' }}</td><td class="number">{{ quote.estimated_billable_hours }}</td><td class="number">{{ quote.labor_rate|currency }}</td><td class="number">{{ quote.labor_subtotal|currency }}</td></tr></tbody></table></div>
   {% endif %}
 </section>
 
@@ -90,4 +91,5 @@
 </div>
 
 {% if quote.is_issued %}<div class="section-title"><h2>Selected terms</h2></div><section class="panel panel-pad">{% for term in quote.term_snapshots.all %}<p><strong>{{ term.name }}</strong><br><span class="muted">{{ term.body }}</span></p>{% endfor %}</section>{% endif %}
+{% if catalog_data %}{{ catalog_data|json_script:"catalog-data" }}{% endif %}
 {% endblock %}

@@ -2,13 +2,46 @@
 {% load core_extras %}
 {% block title %}Ledger · ForgeOps{% endblock %}
 {% block content %}
-<div class="page-head"><div><span class="eyebrow">FINANCIAL LEDGER</span><h1>Ledger</h1><p>Client payments, project costs, business expenses, and tax payments in one chronological workspace.</p></div><div class="head-actions"><a class="btn btn-secondary" href="{% url 'expense_create' 'project' %}">Project expense</a><a class="btn btn-primary" href="{% url 'expense_create' 'business' %}">Business expense</a></div></div>
+<div class="page-head">
+  <div><span class="eyebrow">FINANCIAL LEDGER</span><h1>Ledger</h1><p>Searchable income and expense history with reversible corrections and permanent audit notes.</p></div>
+  <div class="head-actions"><a class="btn btn-secondary" href="{% url 'receipt_inbox' %}">Receipt inbox</a><a class="btn btn-secondary" href="{% url 'expense_create' 'project' %}">Project expense</a><a class="btn btn-primary" href="{% url 'expense_create' 'business' %}">Business expense</a></div>
+</div>
 
-<div class="section-title"><h2>Recent client payments</h2></div>
-<section class="panel"><div class="list">{% for payment in payments %}<div class="list-row"><span><strong>{{ payment.payment_date|date:'M j, Y' }} · {{ payment.client.name }}</strong><small><a href="{% url 'project_detail' payment.project.pk %}">{{ payment.project.name }}</a> · {% if payment.quote %}<a href="{% url 'quote_detail' payment.quote.pk %}">{{ payment.quote }}</a>{% else %}<a href="{% url 'invoice_detail' payment.invoice.pk %}">{{ payment.invoice }}</a>{% endif %}</small><details><summary class="muted">Accounting breakdown</summary>{% for allocation in payment.allocations.all %}<small>{{ allocation.label }} — {{ allocation.amount|currency }}</small>{% empty %}<small>Breakdown unavailable.</small>{% endfor %}</details></span><span><strong>{{ payment.amount|currency }}</strong><small><a href="{% url 'attachment_add' 'payment' payment.pk %}">{{ payment.attachments.count }} receipt file{{ payment.attachments.count|pluralize }}</a></small></span></div>{% empty %}<div class="empty">No client payments recorded.</div>{% endfor %}</div></section>
+<form class="panel filter-bar" method="get">
+  <div class="field"><label for="ledger-q">Search ledger</label><input class="form-control" id="ledger-q" name="q" value="{{ query }}" placeholder="Client, project, document, vendor, category…"></div>
+  <div class="field"><label for="ledger-state">Entry state</label><select class="form-control" id="ledger-state" name="state"><option value="all" {% if state == 'all' %}selected{% endif %}>Active and voided</option><option value="active" {% if state == 'active' %}selected{% endif %}>Active only</option><option value="voided" {% if state == 'voided' %}selected{% endif %}>Voided only</option></select></div>
+  <button class="btn btn-secondary" type="submit">Search</button>
+  {% if query or state != 'all' %}<a class="btn btn-quiet" href="{% url 'expense_list' %}">Clear</a>{% endif %}
+</form>
 
-<div class="section-title"><h2>Recent expenses</h2></div>
-<section class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Vendor / description</th><th>Category</th><th class="number">Amount</th></tr></thead><tbody>{% for expense in expenses %}<tr><td>{{ expense.expense_date|date:'M j, Y' }}</td><td><span class="status status-neutral">{{ expense.get_expense_type_display }}</span>{% if expense.project %}<br><small><a href="{% url 'project_detail' expense.project.pk %}">{{ expense.project.name }}</a></small>{% endif %}</td><td><a href="{% url 'expense_edit' expense.expense_type expense.pk %}"><strong>{{ expense.vendor|default:'No vendor' }}</strong></a><br><small class="muted">{{ expense.description }}</small></td><td>{{ expense.category.name }}</td><td class="number"><strong>{{ expense.amount|currency }}</strong><br><small><a href="{% url 'attachment_add' 'expense' expense.pk %}">{{ expense.attachments.count }} file{{ expense.attachments.count|pluralize }}</a></small></td></tr>{% empty %}<tr><td colspan="5" class="empty">No expenses recorded.</td></tr>{% endfor %}</tbody></table></div></section>
+<div class="section-title"><h2>Client payments</h2><span class="status status-neutral">{{ payment_count }}</span></div>
+<section class="panel"><div class="list">
+  {% for payment in payments %}
+  <div class="list-row {% if payment.is_voided %}ledger-voided{% endif %}">
+    <span>
+      <strong>{{ payment.payment_date|date:'M j, Y' }} · {{ payment.client.name }}</strong>
+      <small><a href="{% url 'project_detail' payment.project.pk %}">{{ payment.project.name }}</a> · {% if payment.quote %}<a href="{% url 'quote_detail' payment.quote.pk %}">{{ payment.quote }}</a>{% else %}<a href="{% url 'invoice_detail' payment.invoice.pk %}">{{ payment.invoice }}</a>{% endif %}</small>
+      {% if payment.is_voided %}<small class="danger-text">Voided · {{ payment.void_reason }}</small>{% endif %}
+      <details><summary class="muted">Accounting breakdown and audit history</summary>{% for allocation in payment.allocations.all %}<small>{{ allocation.label }} — {{ allocation.amount|currency }}</small>{% empty %}<small>Breakdown unavailable.</small>{% endfor %}{% for correction in payment.corrections.all %}<small><strong>{{ correction.get_action_display }}</strong> {{ correction.created_at|date:'M j, Y g:i A' }} — {{ correction.reason }}</small>{% endfor %}</details>
+    </span>
+    <span class="list-row-right"><strong>{{ payment.amount|currency }}</strong><small><a href="{% url 'attachment_add' 'payment' payment.pk %}">{{ payment.attachments.count }} receipt file{{ payment.attachments.count|pluralize }}</a></small>{% if payment.is_voided %}<a class="btn btn-secondary btn-small" href="{% url 'ledger_correction' 'payment' payment.pk 'reinstate' %}">Reinstate</a>{% else %}<a class="btn btn-danger btn-small" href="{% url 'ledger_correction' 'payment' payment.pk 'void' %}">Void</a>{% endif %}</span>
+  </div>
+  {% empty %}<div class="empty">No matching client payments.</div>{% endfor %}
+</div></section>
+
+<div class="section-title"><h2>Expenses</h2><span class="status status-neutral">{{ expense_count }}</span></div>
+<section class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Vendor / description</th><th>Category</th><th class="number">Amount</th><th class="number">Correction</th></tr></thead><tbody>
+  {% for expense in expenses %}
+  <tr class="{% if expense.is_voided %}ledger-voided{% endif %}">
+    <td>{{ expense.expense_date|date:'M j, Y' }}{% if expense.is_voided %}<br><small class="danger-text">Voided</small>{% endif %}</td>
+    <td><span class="status status-neutral">{{ expense.get_expense_type_display }}</span>{% if expense.project %}<br><small><a href="{% url 'project_detail' expense.project.pk %}">{{ expense.project.name }}</a></small>{% endif %}</td>
+    <td><a href="{% url 'expense_edit' expense.expense_type expense.pk %}"><strong>{{ expense.vendor|default:'No vendor' }}</strong></a><br><small class="muted">{{ expense.description }}</small>{% if expense.is_voided %}<br><small class="danger-text">{{ expense.void_reason }}</small>{% endif %}{% if expense.corrections.exists %}<details><summary class="muted">Audit history</summary>{% for correction in expense.corrections.all %}<small><strong>{{ correction.get_action_display }}</strong> {{ correction.created_at|date:'M j, Y g:i A' }} — {{ correction.reason }}</small>{% endfor %}</details>{% endif %}</td>
+    <td>{{ expense.category.name }}</td>
+    <td class="number"><strong>{{ expense.amount|currency }}</strong><br><small><a href="{% url 'attachment_add' 'expense' expense.pk %}">{{ expense.attachments.count }} file{{ expense.attachments.count|pluralize }}</a></small></td>
+    <td class="number">{% if expense.is_voided %}<a class="btn btn-secondary btn-small" href="{% url 'ledger_correction' 'expense' expense.pk 'reinstate' %}">Reinstate</a>{% else %}<a class="btn btn-danger btn-small" href="{% url 'ledger_correction' 'expense' expense.pk 'void' %}">Void</a>{% endif %}</td>
+  </tr>
+  {% empty %}<tr><td colspan="6" class="empty">No matching expenses.</td></tr>{% endfor %}
+</tbody></table></div></section>
 
 <section class="panel panel-pad ledger-note"><strong>Recording a tax payment?</strong><p class="muted">Create a Business Expense and choose either Sales Tax Paid or Income Tax Paid as its category.</p></section>
 {% endblock %}

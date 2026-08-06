@@ -41,7 +41,7 @@ from core.models import (
     Vendor,
     money,
 )
-from core.services import record_activity, seed_defaults
+from core.services import backfill_payment_sales_tax, record_activity, seed_defaults
 
 
 CENT = Decimal("0.01")
@@ -545,6 +545,7 @@ class Command(BaseCommand):
                     label=f"Imported ledger income — {data.get('category') or 'Uncategorized'}",
                     amount=amount,
                 )
+                backfill_payment_sales_tax(payment, audit=False)
                 self.ledger_targets[record["id"]] = payment
                 self._stamp(payment, record)
                 self.imported["payments"] += 1

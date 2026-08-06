@@ -253,6 +253,28 @@
     }
   }
 
+  const catalogNode = document.getElementById("catalog-data");
+  if (catalogNode) {
+    const catalog = JSON.parse(catalogNode.textContent);
+    const catalogSelect = document.getElementById("id_catalog_item") || document.getElementById("id_labor_catalog_item");
+    if (catalogSelect) {
+      catalogSelect.addEventListener("change", function () {
+        const item = catalog.find(function (row) { return String(row.id) === catalogSelect.value; });
+        if (!item) return;
+        const setValue = function (ids, value) {
+          const field = ids.map(function (id) { return document.getElementById(id); }).find(Boolean);
+          if (field && value !== null && value !== undefined) field.value = value;
+        };
+        setValue(["id_description"], item.description);
+        setValue(["id_unit"], item.unit);
+        setValue(["id_unit_price", "id_hourly_rate", "id_labor_rate"], item.rate);
+        setValue(["id_income_category", "id_category", "id_labor_category"], item.category || "");
+        const taxable = document.getElementById("id_taxable");
+        if (taxable) taxable.checked = item.taxable;
+      });
+    }
+  }
+
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("/static/service-worker.js").catch(function () {});

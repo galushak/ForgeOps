@@ -48,8 +48,12 @@ def report_pdf_bytes(data):
         ("Outstanding", data["outstanding"]),
         ("Exact sales-tax reserve", data["exact_sales_reserve"]),
         ("Conservative sales-tax reserve", data["conservative_sales_reserve"]),
+        (f"Sales-tax reserve {data['reserve_position_label']}", data["sales_tax_remaining"]),
+        ("Sales tax paid", data["sales_tax_paid"]),
         ("Income-tax reserve", data["income_tax_remaining"]),
-        ("Total tax remaining", data["total_tax_remaining"]),
+        ("Income tax paid", data["income_tax_paid"]),
+        (f"Total tax {data['reserve_position_label']}", data["total_tax_remaining"]),
+        ("Total tax paid", data["total_tax_paid"]),
     ]
     card_rows = []
     for index in range(0, len(cards), 3):
@@ -77,7 +81,7 @@ def report_pdf_bytes(data):
         table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), INK), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("GRID", (0, 0), (-1, -1), 0.35, LINE), ("PADDING", (0, 0), (-1, -1), 6)]))
         story.append(table)
 
-    add_breakdown("Income by category", data["income_by_category"])
+    add_breakdown("Gross receipts by category", data["income_by_category"])
     add_breakdown("Project expenses by category", data["project_expense_by_category"])
     add_breakdown("Business expenses by category", data["business_expense_by_category"])
     story.append(Paragraph("Project profitability", section))
@@ -97,5 +101,55 @@ def report_pdf_bytes(data):
         story.append(table)
     else:
         story.append(Paragraph("No project activity for this reporting period.", small))
+
+    story.append(Paragraph("Pipeline status", section))
+    pipeline_rows = [[Paragraph("Area", small), Paragraph("Status", small), Paragraph("Count", right)]]
+    for area, statuses in data["pipeline_status"].items():
+        for row in statuses:
+            pipeline_rows.append([Paragraph(area.title(), small), Paragraph(row["label"], small), Paragraph(str(row["count"]), right)])
+    pipeline_table = Table(pipeline_rows, colWidths=[1.2 * inch, 4.5 * inch, 1.2 * inch], repeatRows=1)
+    pipeline_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), INK), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("GRID", (0, 0), (-1, -1), 0.35, LINE), ("PADDING", (0, 0), (-1, -1), 5)]))
+    story.append(pipeline_table)
+
+    story.append(Paragraph("Client summaries", section))
+    client_rows = [[Paragraph("Client", small), Paragraph("Collected", right), Paragraph("Costs", right), Paragraph("Profit", right), Paragraph("Labor", right), Paragraph("Outstanding", right)]]
+    for row in data["client_summaries"]:
+        client_rows.append(
+            [
+                Paragraph(row["client"].name, small),
+                Paragraph(_currency(row["collected"]), right),
+                Paragraph(_currency(row["costs"]), right),
+                Paragraph(_currency(row["profit"]), right),
+                Paragraph(f"{row['labor_hours']:.2f}h", right),
+                Paragraph(_currency(row["outstanding"]), right),
+            ]
+        )
+    if len(client_rows) > 1:
+        client_table = Table(client_rows, colWidths=[2.1 * inch, 1.0 * inch, 0.9 * inch, 0.9 * inch, 0.7 * inch, 1.3 * inch], repeatRows=1)
+        client_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), INK), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("GRID", (0, 0), (-1, -1), 0.35, LINE), ("PADDING", (0, 0), (-1, -1), 5)]))
+        story.append(client_table)
+    else:
+        story.append(Paragraph("No client activity for this reporting period.", small))
+
+    story.append(Paragraph("Detailed project breakdown", section))
+    detail_rows = [[Paragraph("Client / project", small), Paragraph("Status", small), Paragraph("Docs", right), Paragraph("Labor", right), Paragraph("Collected", right), Paragraph("Costs", right), Paragraph("Profit", right)]]
+    for row in data["project_details"]:
+        detail_rows.append(
+            [
+                Paragraph(f"{row['project'].client.name}<br/>{row['project'].name}", small),
+                Paragraph(row["project"].get_status_display(), small),
+                Paragraph(f"{row['quote_count']}Q/{row['invoice_count']}I", right),
+                Paragraph(f"{row['labor_hours']:.2f}h", right),
+                Paragraph(_currency(row["collected"]), right),
+                Paragraph(_currency(row["costs"]), right),
+                Paragraph(_currency(row["profit"]), right),
+            ]
+        )
+    if len(detail_rows) > 1:
+        detail_table = Table(detail_rows, colWidths=[1.85 * inch, 1.1 * inch, 0.65 * inch, 0.65 * inch, 0.9 * inch, 0.85 * inch, 0.9 * inch], repeatRows=1)
+        detail_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), INK), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("GRID", (0, 0), (-1, -1), 0.35, LINE), ("PADDING", (0, 0), (-1, -1), 4)]))
+        story.append(detail_table)
+    else:
+        story.append(Paragraph("No detailed project activity for this reporting period.", small))
     document.build(story)
     return output.getvalue()
