@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Set up ForgeOps{% endblock %}
+{% block body_class %}auth-page{% endblock %}
+{% block auth_content %}
+<main class="auth-layout setup-layout">
+  <section class="auth-intro">
+    <span class="eyebrow">PRIVATE BUSINESS OPERATIONS</span>
+    <h1>Set up ForgeOps.</h1>
+    <p>Your clients, projects, documents, receipts, and financial records stay in your Docker data volume.</p>
+    <ul class="feature-list"><li>One protected admin account</li><li>Mobile-first project workflow</li><li>Persistent SQLite data and uploads</li></ul>
+  </section>
+  <section class="auth-card">
+    <h2>First-run setup</h2>
+    <p class="muted">This page locks after the first account is created.</p>
+    <form method="post" class="stack-form">{% csrf_token %}
+      {% for field in form %}<div class="field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{% for error in field.errors %}<div class="field-error">{{ error }}</div>{% endfor %}</div>{% endfor %}
+      {% for error in form.non_field_errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      <button class="btn btn-primary btn-block" type="submit">Create ForgeOps</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

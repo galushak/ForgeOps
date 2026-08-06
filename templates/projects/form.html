@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head compact">
+  <div><a class="back-link" href="{{ cancel_url }}">← Back</a><span class="eyebrow">PROJECT SETUP</span><h1>{{ title }}</h1><p>Define the client, service location, billing defaults, and project notes.</p></div>
+</div>
+
+<form method="post" class="workspace-form" data-project-form>{% csrf_token %}
+  <section class="panel editor-section">
+    <div class="panel-head"><h2>Project details</h2></div>
+    <div class="editor-grid">
+      {% if not client %}{% include 'generic/field.html' with field=form.client %}{% else %}<div class="field"><label>Client</label><div class="readonly-value">{{ client.name }}</div></div>{% endif %}
+      {% include 'generic/field.html' with field=form.name %}
+      {% include 'generic/field.html' with field=form.status %}
+      {% include 'generic/field.html' with field=form.status_note %}
+    </div>
+  </section>
+
+  <section class="panel editor-section">
+    <div class="panel-head"><div><h2>Service address</h2><small class="muted">Defaults to the client’s primary address.</small></div></div>
+    <div class="panel-body">
+      {% include 'generic/field.html' with field=form.service_address_choice %}
+      <div class="address-popout" data-new-address-panel hidden>
+        <div class="editor-grid">
+          {% include 'generic/field.html' with field=form.new_address_label %}
+          {% include 'generic/field.html' with field=form.new_address_line_1 %}
+          {% include 'generic/field.html' with field=form.new_address_line_2 %}
+          {% include 'generic/field.html' with field=form.new_address_city %}
+          {% include 'generic/field.html' with field=form.new_address_state %}
+          {% include 'generic/field.html' with field=form.new_address_postal_code %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid grid-2">
+    <section class="panel editor-section">
+      <div class="panel-head"><h2>Billing defaults</h2></div>
+      <div class="editor-grid editor-grid-single">
+        {% include 'generic/field.html' with field=form.hourly_rate %}
+        {% include 'generic/field.html' with field=form.labor_minimum_hours %}
+      </div>
+    </section>
+    <section class="panel editor-section">
+      <div class="panel-head"><h2>Notes</h2></div>
+      <div class="editor-grid editor-grid-single">
+        {% include 'generic/field.html' with field=form.internal_notes %}
+        {% include 'generic/field.html' with field=form.client_notes %}
+      </div>
+    </section>
+  </div>
+
+  {% for error in form.non_field_errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+  <div class="form-actions workspace-actions"><a class="btn btn-secondary" href="{{ cancel_url }}">Cancel</a><button class="btn btn-primary" type="submit">Save project</button></div>
+</form>
+{% endblock %}

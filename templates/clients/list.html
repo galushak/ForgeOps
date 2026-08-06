@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}Clients · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head"><div><span class="eyebrow">RELATIONSHIPS</span><h1>Clients</h1><p>Every client receives a permanent Support Calls project automatically.</p></div><a class="btn btn-primary" href="{% url 'client_create' %}">New client</a></div>
+<section class="panel"><div class="list">{% for client in clients %}<a class="list-row" href="{% url 'client_detail' client.pk %}"><span><strong>{{ client.name }}</strong><small>{{ client.primary_contact|default:'No primary contact' }} · {{ client.project_count }} project{{ client.project_count|pluralize }}</small></span><span class="list-row-right"><span class="status {{ client.status|status_class }}">{{ client.get_status_display }}</span><span>→</span></span></a>{% empty %}<div class="empty"><strong>No clients yet.</strong>Add your first client to create their Support Calls project.</div>{% endfor %}</div></section>
+{% endblock %}

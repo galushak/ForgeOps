@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}{{ client.name }} · ForgeOps{% endblock %}
+{% block content %}
+<div class="detail-hero"><div><a class="back-link" href="{% url 'client_list' %}">← Clients</a><span class="status {{ client.status|status_class }}">{{ client.get_status_display }}</span><h1>{{ client.name }}</h1><p>{{ client.primary_contact }}{% if client.email %} · {{ client.email }}{% endif %}{% if client.phone %} · {{ client.phone }}{% endif %}</p></div><div class="head-actions"><a class="btn btn-secondary" href="{% url 'client_edit' client.pk %}">Edit client</a><a class="btn btn-primary" href="{% url 'project_create' client.pk %}">New project</a></div></div>
+<div class="head-actions client-packet-actions"><a class="btn btn-secondary" href="{% url 'client_packet' client.pk 'client' %}">Download client-safe packet</a><a class="btn btn-secondary" href="{% url 'client_packet' client.pk 'internal' %}">Download internal packet</a></div>
+<div class="summary-strip"><div><small>Projects</small><strong>{{ client.projects.count }}</strong></div><div><small>Payments</small><strong>{{ client.payments.count }}</strong></div><div><small>Addresses</small><strong>{{ client.addresses.count }}</strong></div><div><small>Since</small><strong>{{ client.created_at|date:'M Y' }}</strong></div></div>
+
+<div class="section-title" id="projects"><h2>Projects</h2><div class="head-actions"><span class="status status-neutral">{{ project_count }}</span><a class="btn btn-secondary btn-small" href="{{ projects_toggle_url }}">{% if show_all_projects %}Show recent{% else %}View all{% endif %}</a><a class="btn btn-secondary btn-small" href="{% url 'project_create' client.pk %}">Add project</a></div></div>
+<section class="panel"><div class="list">{% for project in projects %}<a class="list-row" href="{% url 'project_detail' project.pk %}"><span><strong>{{ project.name }}</strong><small>{{ project.project_number }}</small></span><span class="status {{ project.status|status_class }}">{{ project.get_status_display }}</span></a>{% empty %}<div class="empty">No projects.</div>{% endfor %}</div></section>
+
+<div class="grid grid-2">
+  <div>
+    <div class="section-title" id="quotes"><h2>Quotes</h2><div class="head-actions"><span class="status status-neutral">{{ quote_count }}</span><a class="btn btn-secondary btn-small" href="{{ quotes_toggle_url }}">{% if show_all_quotes %}Show recent{% else %}View all{% endif %}</a></div></div>
+    <section class="panel"><div class="list">{% for quote in quotes %}<a class="list-row" href="{% url 'quote_detail' quote.pk %}"><span><strong>{{ quote.name }}</strong><small>{{ quote.project.name }} · {{ quote.quote_number|default:'Draft' }}</small></span><span><strong>{{ quote.estimated_total|currency }}</strong><small>{{ quote.get_status_display }}</small></span></a>{% empty %}<div class="empty">No quotes for this client.</div>{% endfor %}</div></section>
+  </div>
+  <div>
+    <div class="section-title" id="invoices"><h2>Invoices</h2><div class="head-actions"><span class="status status-neutral">{{ invoice_count }}</span><a class="btn btn-secondary btn-small" href="{{ invoices_toggle_url }}">{% if show_all_invoices %}Show recent{% else %}View all{% endif %}</a></div></div>
+    <section class="panel"><div class="list">{% for invoice in invoices %}<a class="list-row" href="{% url 'invoice_detail' invoice.pk %}"><span><strong>{{ invoice.name }}</strong><small>{{ invoice.project.name }} · {{ invoice.invoice_number|default:'Draft' }}</small></span><span><strong>{{ invoice.total|currency }}</strong><small>{% if invoice.is_overdue %}Overdue{% else %}{{ invoice.get_status_display }}{% endif %}</small></span></a>{% empty %}<div class="empty">No invoices for this client.</div>{% endfor %}</div></section>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div><div class="section-title"><h2>Service addresses</h2><a class="btn btn-secondary btn-small" href="{% url 'address_create' client.pk %}">Add address</a></div><section class="panel"><div class="list">{% for address in client.addresses.all %}<a class="list-row" href="{% url 'address_edit' client.pk address.pk %}"><span><strong>{{ address.label }}{% if address.is_primary %} · Primary{% endif %}</strong><small>{{ address.address_line_1 }}, {{ address.city }}, {{ address.state }} {{ address.postal_code }}</small></span><span>→</span></a>{% empty %}<div class="empty">No service addresses saved.</div>{% endfor %}</div></section></div>
+  <div><div class="section-title"><h2>Notes</h2><a class="btn btn-secondary btn-small" href="{% url 'client_note_add' client.pk %}">Add note</a></div><section class="panel"><div class="list">{% for note in client.record_notes.all %}<div class="list-row"><span><strong>{{ note.get_visibility_display }}</strong><small>{{ note.body }}</small></span><small>{{ note.created_at|date:'M j' }}</small></div>{% empty %}<div class="empty">No notes yet.</div>{% endfor %}</div></section></div>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+{% block title %}Reports · ForgeOps{% endblock %}
+{% block content %}
+<div class="page-head"><div><span class="eyebrow">BUSINESS INSIGHTS</span><h1>Reports</h1><p>Cash-based operating performance, exact tax collected, conservative reserves, and project profitability.</p></div><a class="btn btn-primary" href="{% url 'report_pdf' %}?{{ request.GET.urlencode }}">Download PDF</a></div>
+<form class="panel filter-bar" method="get" data-report-filters>
+  <div class="field"><label for="range">Report type</label><select class="form-control" id="range" name="range"><option value="month" {% if range_kind == 'month' %}selected{% endif %}>Month</option><option value="quarter" {% if range_kind == 'quarter' %}selected{% endif %}>NYS Sales Tax Quarter</option><option value="year" {% if range_kind == 'year' %}selected{% endif %}>Year</option></select></div>
+  <div class="field" data-report-field="month"{% if range_kind != 'month' %} hidden{% endif %}><label for="month">Month</label><select class="form-control" id="month" name="month">{% for value,label in month_choices %}<option value="{{ value }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="field" data-report-field="quarter"{% if range_kind != 'quarter' %} hidden{% endif %}><label for="quarter">NYS quarter</label><select class="form-control" id="quarter" name="quarter"><option value="1" {% if selected_quarter == 1 %}selected{% endif %}>Mar 1 – May 31</option><option value="2" {% if selected_quarter == 2 %}selected{% endif %}>Jun 1 – Aug 31</option><option value="3" {% if selected_quarter == 3 %}selected{% endif %}>Sep 1 – Nov 30</option><option value="4" {% if selected_quarter == 4 %}selected{% endif %}>Dec 1 – Feb 28/29</option></select></div>
+  <div class="field"><label for="year">Year</label><input class="form-control" id="year" name="year" type="number" min="2000" max="2100" value="{{ year }}"></div>
+  <button class="btn btn-secondary" type="submit">Run report</button>
+</form>
+<section class="report-banner"><div><span class="eyebrow">{{ range_label }}</span><h2>Business performance</h2><p>Range: {{ start|date:'Y-m-d' }} through {{ end|date:'Y-m-d' }}{% if filing_due %} · Filing due {{ filing_due|date:'M j, Y' }}{% endif %}</p></div><div class="tax-badge">{{ business_profile.sales_tax_rate }}%<small>sales tax</small></div></section>
+
+<div class="grid grid-4">
+  <section class="panel metric"><span class="metric-label">Revenue</span><strong>{{ revenue|currency }}</strong><small>Gross client payments, including sales tax</small></section>
+  <section class="panel metric"><span class="metric-label">Total expenses</span><strong>{{ total_expenses|currency }}</strong><small>Project + business expenses</small></section>
+  <section class="panel metric"><span class="metric-label">Project expenses</span><strong>{{ project_expenses|currency }}</strong><small>Project costs and COGS</small></section>
+  <section class="panel metric"><span class="metric-label">Business expenses</span><strong>{{ business_expenses|currency }}</strong><small>General operating costs</small></section>
+  <section class="panel metric"><span class="metric-label">Net income</span><strong>{{ net_income|currency }}</strong><small>Before income-tax reserve</small></section>
+  <section class="panel metric metric-positive"><span class="metric-label">Estimated after-tax profit</span><strong>{{ estimated_after_tax_profit|currency }}</strong><small>After {{ business_profile.income_tax_reserve_rate }}% planning estimate</small></section>
+  <section class="panel metric"><span class="metric-label">Invoice total</span><strong>{{ invoice_total|currency }}</strong><small>{{ invoice_count }} issued invoice{{ invoice_count|pluralize }}</small></section>
+  <section class="panel metric"><span class="metric-label">Outstanding</span><strong>{{ outstanding|currency }}</strong><small>Open receivables as of period end</small></section>
+  <section class="panel metric"><span class="metric-label">Exact sales-tax reserve</span><strong>{{ exact_sales_reserve|currency }}</strong><small>Actual sales tax identified in client payments</small></section>
+  <section class="panel metric"><span class="metric-label">Conservative sales-tax reserve</span><strong>{{ conservative_sales_reserve|currency }}</strong><small>7% of gross revenue · {{ sales_tax_cushion_abs|currency }} {{ sales_tax_cushion_direction }} exact</small></section>
+  <section class="panel metric"><span class="metric-label">Sales-tax reserve {{ reserve_position_label }}</span><strong>{{ sales_tax_remaining|currency }}</strong><small>Period reserve accrual less recorded payments</small></section>
+  <section class="panel metric"><span class="metric-label">Sales tax paid</span><strong>{{ sales_tax_paid|currency }}</strong><small>Recorded state sales-tax payments</small></section>
+  <section class="panel metric"><span class="metric-label">Income-tax reserve</span><strong>{{ income_tax_remaining|currency }}</strong><small>{{ income_tax_paid|currency }} already paid</small></section>
+  <section class="panel metric"><span class="metric-label">Income tax paid</span><strong>{{ income_tax_paid|currency }}</strong><small>Recorded income-tax payments</small></section>
+  <section class="panel metric"><span class="metric-label">Total tax {{ reserve_position_label }}</span><strong>{{ total_tax_remaining|currency }}</strong><small>Sales + income reserve movement after payments</small></section>
+  <section class="panel metric"><span class="metric-label">Total tax paid</span><strong>{{ total_tax_paid|currency }}</strong><small>Sales + income tax payments</small></section>
+</div>
+
+<div class="grid grid-2" style="margin-top:16px">
+  <section class="panel chart-box"><div class="panel-head" style="padding:0 0 15px;border:0"><h2>Revenue vs expenses</h2></div><div class="chart-row"><span>Revenue</span><div class="chart-track"><div class="chart-bar" style="width:{{ revenue_chart_width }}%"></div></div><span class="chart-value">{{ revenue|currency }}</span></div><div class="chart-row"><span>Expenses</span><div class="chart-track"><div class="chart-bar mint" style="width:{{ expense_chart_width }}%"></div></div><span class="chart-value">{{ total_expenses|currency }}</span></div></section>
+  <section class="panel chart-box"><div class="panel-head" style="padding:0 0 15px;border:0"><h2>Gross receipts by category</h2></div>{% for row in income_by_category %}<div class="chart-row"><span>{{ row.category__name|truncatechars:24 }}</span><div class="chart-track"><div class="chart-bar" style="width:{% widthratio row.total revenue 100 %}%"></div></div><span class="chart-value">{{ row.total|currency }}</span></div>{% empty %}<div class="empty">No categorized income.</div>{% endfor %}</section>
+</div>
+
+<div class="grid grid-2">
+  <section><div class="section-title"><h2>Expense categories</h2></div><div class="panel"><div class="list">{% for row in project_expense_by_category %}<div class="list-row"><span><strong>{{ row.category__name }}</strong><small>Project expense</small></span><strong>{{ row.total|currency }}</strong></div>{% endfor %}{% for row in business_expense_by_category %}<div class="list-row"><span><strong>{{ row.category__name }}</strong><small>Business expense</small></span><strong>{{ row.total|currency }}</strong></div>{% empty %}{% if not project_expense_by_category %}<div class="empty">No expense activity.</div>{% endif %}{% endfor %}</div></div></section>
+  <section><div class="section-title"><h2>Project profitability</h2></div><div class="panel"><div class="list">{% for row in project_profitability %}<a class="list-row" href="{% url 'project_detail' row.project.pk %}"><span><strong>{{ row.project.name }}</strong><small>{{ row.collected|currency }} collected · {{ row.costs|currency }} costs</small></span><strong>{{ row.profit|currency }}</strong></a>{% empty %}<div class="empty">No project activity in this period.</div>{% endfor %}</div></div></section>
+</div>
+
+<div class="section-title"><h2>Pipeline status</h2><span class="muted">Current workflow snapshot</span></div>
+<div class="grid grid-3">
+  <section class="panel panel-pad"><h3>Projects</h3><div class="list">{% for row in pipeline_status.projects %}<div class="list-row"><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div>{% empty %}<div class="empty">No projects.</div>{% endfor %}</div></section>
+  <section class="panel panel-pad"><h3>Quotes</h3><div class="list">{% for row in pipeline_status.quotes %}<div class="list-row"><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div>{% empty %}<div class="empty">No quotes.</div>{% endfor %}</div></section>
+  <section class="panel panel-pad"><h3>Invoices</h3><div class="list">{% for row in pipeline_status.invoices %}<div class="list-row"><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div>{% empty %}<div class="empty">No invoices.</div>{% endfor %}</div></section>
+</div>
+
+<div class="section-title"><h2>Client summaries</h2><span class="muted">Activity inside the selected period</span></div>
+<section class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Client</th><th class="number">Collected</th><th class="number">Costs</th><th class="number">Cash profit</th><th class="number">Labor</th><th class="number">Invoices</th><th class="number">Outstanding</th></tr></thead><tbody>{% for row in client_summaries %}<tr><td><a href="{% url 'client_detail' row.client.pk %}"><strong>{{ row.client.name }}</strong></a></td><td class="number">{{ row.collected|currency }}</td><td class="number">{{ row.costs|currency }}</td><td class="number"><strong>{{ row.profit|currency }}</strong></td><td class="number">{{ row.labor_hours|floatformat:2 }} hrs</td><td class="number">{{ row.invoice_count }}</td><td class="number">{{ row.outstanding|currency }}</td></tr>{% empty %}<tr><td colspan="7" class="empty">No client activity in this period.</td></tr>{% endfor %}</tbody></table></div></section>
+
+<div class="section-title"><h2>Detailed project breakdown</h2><span class="muted">Documents, labor, collected revenue, and costs</span></div>
+<section class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Client / project</th><th>Status</th><th class="number">Docs</th><th class="number">Labor</th><th class="number">Collected</th><th class="number">Costs</th><th class="number">Profit</th><th class="number">Outstanding</th></tr></thead><tbody>{% for row in project_details %}<tr><td><a href="{% url 'project_detail' row.project.pk %}"><strong>{{ row.project.name }}</strong></a><br><small>{{ row.project.client.name }} · {{ row.project.project_number }}</small></td><td>{{ row.project.get_status_display }}</td><td class="number">{{ row.quote_count }} Q / {{ row.invoice_count }} I</td><td class="number">{{ row.labor_hours|floatformat:2 }} hrs</td><td class="number">{{ row.collected|currency }}</td><td class="number">{{ row.costs|currency }}</td><td class="number"><strong>{{ row.profit|currency }}</strong></td><td class="number">{{ row.outstanding|currency }}</td></tr>{% empty %}<tr><td colspan="8" class="empty">No project activity in this period.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

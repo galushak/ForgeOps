@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Sign in · ForgeOps{% endblock %}
+{% block body_class %}auth-page{% endblock %}
+{% block auth_content %}
+<main class="auth-layout login-layout">
+  <section class="auth-intro">
+    <span class="brand-mark large">FO</span>
+    <span class="eyebrow">FORGEOPS</span>
+    <h1>Your business, in working order.</h1>
+    <p>Clients, projects, labor, documents, ledger entries, and receipts—organized around the work.</p>
+  </section>
+  <section class="auth-card">
+    <h2>Welcome back</h2>
+    {% if form.errors %}<div class="message error">The username or password was not accepted.</div>{% endif %}
+    <form method="post" class="stack-form" data-login-form>{% csrf_token %}
+      <div class="field"><label for="id_username">Username</label><input class="form-control" id="id_username" name="username" autocomplete="username" required autofocus></div>
+      <div class="field"><label for="id_password">Password</label><input class="form-control" id="id_password" name="password" type="password" autocomplete="current-password" required></div>
+      <label class="remember-row"><input type="checkbox" data-remember-username> Remember username on this device</label>
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+    </form>
+    <p class="auth-help">Password recovery is available from the server console.</p>
+  </section>
+</main>
+{% endblock %}

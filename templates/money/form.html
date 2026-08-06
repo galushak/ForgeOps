@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} · ForgeOps{% endblock %}
+{% block content %}
+<div class="form-page-head"><a class="back-link" href="{{ cancel_url }}">← Ledger</a><span class="eyebrow">LEDGER ENTRY</span><h1>{{ title }}</h1>{% if expense_type == 'project' %}<p>Choose the client first; only that client’s active projects and the selected project’s documents will appear.</p>{% else %}<p>Tax payments are recorded here using the Sales Tax Paid or Income Tax Paid category.</p>{% endif %}</div>
+
+<form method="post" enctype="multipart/form-data" class="stack-form" data-ledger-expense-form data-expense-type="{{ expense_type }}">{% csrf_token %}
+  <section class="panel form-panel">
+    <div class="editor-grid editor-grid-2">
+      {% include 'generic/field.html' with field=form.expense_date %}
+      {% include 'generic/field.html' with field=form.amount %}
+      {% if expense_type == 'project' %}
+        {% include 'generic/field.html' with field=form.client %}
+        {% include 'generic/field.html' with field=form.project %}
+        {% include 'generic/field.html' with field=form.quote %}
+        {% include 'generic/field.html' with field=form.invoice %}
+      {% endif %}
+      {% include 'generic/field.html' with field=form.vendor_choice %}
+      {% include 'generic/field.html' with field=form.category %}
+      <div class="address-popout field-wide" data-new-vendor-panel hidden>{% include 'generic/field.html' with field=form.new_vendor_name %}</div>
+      <div class="field-wide">{% include 'generic/field.html' with field=form.description %}</div>
+      <label class="field field-wide">Receipts <input class="file-input" type="file" name="receipts" multiple accept="image/*,.pdf"><span class="field-help">Attach any combination of receipt images or PDF files.</span></label>
+    </div>
+    {% for error in form.non_field_errors %}<div class="field-error editor-error">{{ error }}</div>{% endfor %}
+  </section>
+  <div class="head-actions workspace-actions"><a class="btn btn-secondary" href="{{ cancel_url }}">Cancel</a><button class="btn btn-primary" type="submit">Save expense</button></div>
+</form>
+{{ dependent_data|json_script:"ledger-dependent-data" }}
+{% endblock %}

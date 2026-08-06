@@ -1,0 +1,79 @@
+{% load static core_extras %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#132225">
+  <title>{% block title %}ForgeOps{% endblock %}</title>
+  <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script defer src="{% static 'js/app.js' %}"></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+{% if user.is_authenticated %}
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="header-inner">
+        <a class="brand" href="{% url 'dashboard' %}" aria-label="ForgeOps home"><span class="brand-mark">FO</span><span><strong>ForgeOps</strong><small>{{ business_profile.business_name|default:'Business operations' }}</small></span></a>
+        <nav class="main-nav" aria-label="Primary navigation">
+          <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><span>HM</span>Home</a>
+          <a class="{% if 'client' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'client_list' %}"><span>CL</span>Clients</a>
+          <a class="{% if 'project' in request.resolver_match.url_name and 'packet' not in request.resolver_match.url_name %}active{% endif %}" href="{% url 'project_list' %}"><span>PR</span>Projects</a>
+          <a class="{% if 'expense' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'expense_list' %}"><span>LG</span>Ledger</a>
+          <a class="{% if 'report' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'reports' %}"><span>RP</span>Reports</a>
+        </nav>
+        <div class="header-actions"><a href="{% url 'settings_profile' %}">Settings</a><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="button-reset" type="submit">Sign out</button></form></div>
+      </div>
+    </header>
+    <main class="main-content">
+      <header class="topbar">
+        <span class="mobile-brand">ForgeOps</span>
+        <form class="search-box" action="{% url 'global_search' %}" method="get">
+          <label class="sr-only" for="global-search">Search</label>
+          <input id="global-search" name="q" type="search" placeholder="Search clients, projects, documents…" value="{{ request.GET.q }}">
+        </form>
+        <a class="topbar-settings" href="{% url 'settings_profile' %}" aria-label="Settings">CFG</a>
+      </header>
+      <div class="content-wrap">
+        {% if messages %}
+          <div class="messages" aria-live="polite">
+            {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
+          </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+  <details class="quick-add">
+    <summary aria-label="Quick add">+</summary>
+    <div class="quick-menu">
+      <a href="{% url 'quick_labor' %}">Add labor</a>
+      <a href="{% url 'client_create' %}">New client</a>
+      <a href="{% url 'expense_create' 'project' %}">Project expense</a>
+      <a href="{% url 'expense_create' 'business' %}">Business expense</a>
+    </div>
+  </details>
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}"><span>HM</span>Home</a>
+    <a class="{% if 'client' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'client_list' %}"><span>CL</span>Clients</a>
+    <a class="{% if 'project' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'project_list' %}"><span>PR</span>Projects</a>
+    <a class="{% if 'expense' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'expense_list' %}"><span>LG</span>Ledger</a>
+    <a class="{% if 'report' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'reports' %}"><span>RP</span>Reports</a>
+  </nav>
+{% else %}
+  {% block auth_content %}{% endblock %}
+{% endif %}
+<dialog class="app-dialog" data-app-confirm aria-labelledby="app-confirm-title" aria-describedby="app-confirm-message">
+  <div class="app-dialog-card">
+    <span class="app-dialog-kicker">FORGEOPS // CONFIRM ACTION</span>
+    <h2 id="app-confirm-title" data-app-confirm-title>Confirm action</h2>
+    <p id="app-confirm-message" data-app-confirm-message></p>
+    <div class="app-dialog-actions">
+      <button class="btn btn-secondary" type="button" data-app-confirm-cancel>Cancel</button>
+      <button class="btn btn-primary" type="button" data-app-confirm-accept>Continue</button>
+    </div>
+  </div>
+</dialog>
+</body>
+</html>
