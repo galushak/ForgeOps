@@ -63,8 +63,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-phase3-quotes" in html
-    assert "forgeops-phase-3-quotes-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase4-invoices-mobile-fix" in html
+    assert "forgeops-phase-4-invoices-v2" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -98,7 +98,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-phase3-quotes" in html
+    assert "/static/js/app.js?v=0.8.12-phase4-invoices-mobile-fix" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -176,6 +176,97 @@ def test_frontend_phase_3_quote_workflow_characterization():
         "env(safe-area-inset-bottom",
     ]:
         assert marker in phase3_css
+
+
+def test_frontend_phase_4_invoice_workflow_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    phase4_css = (static_dir / "phase4-invoices.css").read_text(encoding="utf-8")
+    service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
+
+    assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
+    assert "/static/js/app.js?v=0.8.12-phase4-invoices-mobile-fix" in html
+    assert "forgeops-phase-4-invoices-v2" in service_worker
+    assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
+
+    for marker in [
+        "invoiceStatusFilter",
+        "invoiceClientFilter",
+        "Search Invoices",
+        "invoice-desktop-list",
+        "invoice-mobile-list",
+        "invoiceCardHtml",
+        "invoiceListEmptyHtml",
+        "Available Uninvoiced Labor",
+        "statusLabel(entry.status)",
+        "invoice-totals-summary",
+        "invoice-terms-notes-grid",
+        "data-invoice-sticky-balance",
+    ]:
+        assert marker in javascript
+
+    invoice_editor = javascript[
+        javascript.index("function invoiceInternalSheetHtml") : javascript.index("function invoiceEditorShellHtml")
+    ]
+    required_section_order = [
+        "Invoice Details",
+        "Billing Context",
+        "Available Uninvoiced Labor",
+        "Additional Materials",
+        "Credits / Payments Applied",
+        "Invoice Totals",
+        "Terms and Notes",
+    ]
+    assert [invoice_editor.index(marker) for marker in required_section_order] == sorted(
+        invoice_editor.index(marker) for marker in required_section_order
+    )
+
+    line_wiring = javascript[
+        javascript.index("function wireInvoiceLineEditor") : javascript.index("function recalcInvoiceEditor")
+    ]
+    assert "addMaterial.onclick" in line_wiring
+    assert "addCredit.onclick" in line_wiring
+    assert "{ once: true }" not in line_wiring
+
+    for marker in [
+        'data-action="create-invoice-from-quote"',
+        "startInvoiceFromQuote",
+        "Create another invoice?",
+        "scopedQuoteId",
+        "returnToProject",
+        "returnToDashboard",
+        "printInvoice",
+        "invoicePrintSection",
+        "QUICK_CREATE_ACTIONS",
+        "New Invoice",
+        "setInvoiceEditorPageState(true)",
+        "setInvoiceEditorPageState(false)",
+        "mobileNavigation.inert = active",
+        "mobileNavigation.setAttribute('aria-hidden', 'true')",
+    ]:
+        assert marker in javascript
+
+    for marker in [
+        ".invoice-desktop-list",
+        ".invoice-mobile-list",
+        ".invoice-record-card",
+        ".invoice-editor-shell",
+        ".invoice-labor-card",
+        ".invoice-totals-summary",
+        ".invoice-editor-actions",
+        ".quote-invoice-actions",
+        ".quote-desktop-list .quote-invoice-actions",
+        "@media (max-width: 700px)",
+        "@media (max-width: 360px)",
+        "env(safe-area-inset-bottom",
+        "body.invoice-editor-open .mobile-bottom-nav",
+        "visibility: hidden",
+        "pointer-events: none",
+        ".invoice-editor-shell.modal-card.wide-modal",
+        "min-height: 100dvh",
+    ]:
+        assert marker in phase4_css
 
 
 def test_health(client):
@@ -525,6 +616,149 @@ def test_quotes_invoices_and_labor_invoice_link_flow(authed):
     assert labor_after_delete["invoice_id"] is None
     assert labor_after_delete["is_invoiced"] is False
     assert authed.delete(f"/api/quotes/{quote_id}").status_code == 200
+
+
+def test_invoice_phase4_characterizes_legacy_totals_status_and_quote_links(authed):
+    client_id = authed.post("/api/clients", json={"name": "Phase 4 Billing Client"}).json()["id"]
+    project_id = authed.post(
+        "/api/projects",
+        json={"client_id": client_id, "name": "Phase 4 Billing Project"},
+    ).json()["id"]
+    quote_id = authed.post(
+        "/api/quotes",
+        json={
+            "quote_number": "FS-QUOTE-PHASE4-001",
+            "client_id": client_id,
+            "project_id": project_id,
+            "status": "approved",
+            "title": "Phase 4 Source Quote",
+            "quote_date": "2026-08-12",
+        },
+    ).json()["id"]
+    planned_labor_id = authed.post(
+        "/api/labor",
+        json={
+            "work_date": "2026-08-12",
+            "client_id": client_id,
+            "project_id": project_id,
+            "status": "planned",
+            "service_type": "Planned follow-up",
+            "hours": "2.00",
+            "hourly_rate": "100.00",
+        },
+    ).json()["id"]
+
+    first = authed.post(
+        "/api/invoices",
+        json={
+            "invoice_number": "FS-INV-PHASE4-001",
+            "client_id": client_id,
+            "project_id": project_id,
+            "quote_id": quote_id,
+            "status": "sent",
+            "title": "Phase 4 Legacy Behavior",
+            "invoice_date": "2026-08-12",
+            "amount_paid": "999.00",
+            "labor_entry_ids": [planned_labor_id],
+            "line_items": [
+                {
+                    "kind": "material",
+                    "description": "Server-trusted material total",
+                    "quantity": "2.00",
+                    "unit_price": "100.00",
+                    "line_total": "50.00",
+                    "taxable": False,
+                },
+                {
+                    "kind": "payment",
+                    "description": "Existing payment line",
+                    "quantity": "1.00",
+                    "unit_price": "25.00",
+                    "line_total": "25.00",
+                    "taxable": False,
+                },
+            ],
+        },
+    )
+    assert first.status_code == 201
+    first_json = first.json()
+    assert first_json["status"] == "sent"
+    assert first_json["subtotal"] == "250.00"
+    assert first_json["tax_amount"] == "17.50"
+    assert first_json["total_amount"] == "267.50"
+    assert first_json["amount_paid"] == "25.00"
+    assert first_json["balance_due"] == "242.50"
+
+    linked_labor = authed.get("/api/labor", params={"client_id": client_id}).json()["items"][0]
+    assert linked_labor["status"] == "planned"
+    assert linked_labor["invoice_id"] == first_json["id"]
+    assert linked_labor["is_invoiced"] is True
+
+    manually_paid = authed.patch(f"/api/invoices/{first_json['id']}", json={"status": "paid"})
+    assert manually_paid.status_code == 200
+    assert manually_paid.json()["status"] == "paid"
+    assert manually_paid.json()["amount_paid"] == "25.00"
+
+    second = authed.post(
+        "/api/invoices",
+        json={
+            "invoice_number": "FS-INV-PHASE4-002",
+            "client_id": client_id,
+            "project_id": project_id,
+            "quote_id": quote_id,
+            "status": "draft",
+            "title": "Second Invoice For Same Quote",
+            "invoice_date": "2026-08-12",
+        },
+    )
+    assert second.status_code == 201
+    assert second.json()["quote_id"] == quote_id
+    assert authed.get("/api/invoices", params={"project_id": project_id}).json()["meta"]["total"] == 2
+    assert authed.delete(f"/api/quotes/{quote_id}").status_code == 400
+
+    assert authed.delete(f"/api/invoices/{first_json['id']}").status_code == 200
+    unlinked_labor = authed.get("/api/labor", params={"client_id": client_id}).json()["items"][0]
+    assert unlinked_labor["invoice_id"] is None
+    assert unlinked_labor["invoice_number"] is None
+    assert unlinked_labor["is_invoiced"] is False
+
+
+def test_invoice_phase4_characterizes_link_ownership_validation(authed):
+    first_client = authed.post("/api/clients", json={"name": "First Invoice Client"}).json()["id"]
+    second_client = authed.post("/api/clients", json={"name": "Second Invoice Client"}).json()["id"]
+    first_project = authed.post(
+        "/api/projects", json={"client_id": first_client, "name": "First Invoice Project"}
+    ).json()["id"]
+    second_project = authed.post(
+        "/api/projects", json={"client_id": second_client, "name": "Second Invoice Project"}
+    ).json()["id"]
+    second_quote = authed.post(
+        "/api/quotes",
+        json={
+            "quote_number": "FS-QUOTE-PHASE4-OWNERSHIP",
+            "client_id": second_client,
+            "project_id": second_project,
+            "title": "Second Client Quote",
+            "quote_date": "2026-08-12",
+        },
+    ).json()["id"]
+
+    base_payload = {
+        "invoice_number": "FS-INV-PHASE4-OWNERSHIP",
+        "client_id": first_client,
+        "title": "Invalid Ownership Invoice",
+        "invoice_date": "2026-08-12",
+    }
+    wrong_project = authed.post("/api/invoices", json={**base_payload, "project_id": second_project})
+    assert wrong_project.status_code == 400
+    assert wrong_project.json()["detail"] == "Project does not belong to selected client"
+
+    wrong_quote = authed.post(
+        "/api/invoices",
+        json={**base_payload, "project_id": first_project, "quote_id": second_quote},
+    )
+    assert wrong_quote.status_code == 400
+    assert wrong_quote.json()["detail"] == "Quote does not belong to selected client"
 
 
 def test_authenticated_user_profile_updates_and_password_change(authed):

@@ -1,4 +1,4 @@
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -123,7 +123,7 @@ const titles = {
   clients: ['Clients', 'Client database, contact info, and site addresses.'],
   projects: ['Projects', 'Project-centered workflow for jobs and client work.'],
   quotes: ['Quotes', 'Create and track quotes attached to clients and projects.'],
-  invoices: ['Invoices', 'Create and track invoices attached to clients, projects, quotes, and labor.'],
+  invoices: ['Invoices', 'Bill actual labor and materials, then track status and balance.'],
   ledger: ['Ledger', 'Revenue, expenses, reimbursements, and admin costs.'],
   labor: ['Labor', 'Track billable work against clients and projects.'],
   reports: ['Reports', 'Money flow, sales-tax periods, and client/project summaries.'],
@@ -447,7 +447,7 @@ function quoteEditorFormHtml({editing=null, generatedQuoteNumber='', quoteNumber
         <div class="quote-editor-section-head"><span>7</span><div><h3 id="${formId}NotesHeading">Internal Notes</h3><p>Visible inside ForgeOps only; these notes are not printed on the Quote.</p></div></div>
         <label>Notes<textarea name="notes" rows="4" placeholder="Internal context, reminders, or follow-up notes">${escapeHtml(editing?.notes)}</textarea></label>
       </section>
-      <footer class="form-actions quote-editor-actions"><div class="quote-editor-footer-total"><span>Grand total</span><strong data-quote-sticky-total>$0.00</strong></div><div class="quote-editor-action-buttons"><button class="ghost${cancelClass}"${cancelIdAttr} type="button">Cancel</button>${isEdit ? `<button class="ghost" type="button" data-action="print" data-type="quote" data-id="${editing.id}">Print Quote</button>` : ''}<button class="primary" type="submit">${isEdit ? 'Update Quote' : 'Save Quote'}</button></div></footer>
+      <footer class="form-actions quote-editor-actions"><div class="quote-editor-footer-total"><span>Grand total</span><strong data-quote-sticky-total>$0.00</strong></div><div class="quote-editor-action-buttons"><button class="ghost${cancelClass}"${cancelIdAttr} type="button">Cancel</button>${isEdit ? `<button class="ghost" type="button" data-action="create-invoice-from-quote" data-quote-id="${editing.id}">Create Invoice</button><button class="ghost" type="button" data-action="print" data-type="quote" data-id="${editing.id}">Print Quote</button>` : ''}<button class="primary" type="submit">${isEdit ? 'Update Quote' : 'Save Quote'}</button></div></footer>
     </form></div>`;
 }
 
@@ -484,122 +484,132 @@ function invoiceMaterialRowHtml(item={}) {
   const qty = item.quantity ?? '1.00';
   const price = item.unit_price ?? '0.00';
   const total = item.line_total ?? (Number(qty || 0) * Number(price || 0)).toFixed(2);
-  return `<div class="invoice-material-row" data-kind="material">
-    <input name="material_description" placeholder="Cable, keystone jacks, hardware..." value="${escapeHtml(item.description || '')}">
-    <input name="material_quantity" type="number" min="0" step="0.01" value="${escapeHtml(qty)}">
-    <input name="material_unit_price" type="number" min="0" step="0.01" value="${escapeHtml(price)}">
-    <input name="material_line_total" readonly value="${money(total)}">
-    <button class="mini danger invoice-remove-line" type="button">Remove</button>
-  </div>`;
+  return `<article class="invoice-material-row invoice-line-card" data-kind="material">
+    <label class="invoice-line-field invoice-line-description"><span>Description</span><input name="material_description" placeholder="Cable, keystone jacks, hardware..." value="${escapeHtml(item.description || '')}"></label>
+    <label class="invoice-line-field"><span>Quantity</span><input name="material_quantity" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(qty)}"></label>
+    <label class="invoice-line-field"><span>Unit price</span><input name="material_unit_price" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(price)}"></label>
+    <label class="invoice-line-field invoice-line-total"><span>Line total</span><input name="material_line_total" readonly aria-readonly="true" value="${money(total)}"></label>
+    <button class="mini danger-mini invoice-remove-line" type="button" aria-label="Remove material line">Remove</button>
+  </article>`;
 }
 
 function invoiceCreditRowHtml(item={}) {
   const amount = item.line_total ?? item.unit_price ?? '0.00';
   const kind = ['credit','payment','adjustment'].includes(String(item.kind)) ? item.kind : 'payment';
-  return `<div class="invoice-credit-row" data-kind="credit">
-    <select name="credit_kind"><option value="payment" ${kind==='payment'?'selected':''}>Payment</option><option value="credit" ${kind==='credit'?'selected':''}>Credit</option><option value="adjustment" ${kind==='adjustment'?'selected':''}>Adjustment</option></select>
-    <input name="credit_description" placeholder="Payment toward labor, cable credit..." value="${escapeHtml(item.description || '')}">
-    <input name="credit_amount" type="number" min="0" step="0.01" value="${escapeHtml(amount)}">
-    <button class="mini danger invoice-remove-line" type="button">Remove</button>
-  </div>`;
+  return `<article class="invoice-credit-row invoice-line-card" data-kind="credit">
+    <label class="invoice-line-field"><span>Type</span><select name="credit_kind"><option value="payment" ${kind==='payment'?'selected':''}>Payment</option><option value="credit" ${kind==='credit'?'selected':''}>Credit</option><option value="adjustment" ${kind==='adjustment'?'selected':''}>Adjustment</option></select></label>
+    <label class="invoice-line-field invoice-line-description"><span>Description</span><input name="credit_description" placeholder="Payment toward labor, cable credit..." value="${escapeHtml(item.description || '')}"></label>
+    <label class="invoice-line-field"><span>Amount</span><input name="credit_amount" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(amount)}"></label>
+    <button class="mini danger-mini invoice-remove-line" type="button" aria-label="Remove credit or payment line">Remove</button>
+  </article>`;
 }
 
-function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invoiceNumberAttrs='', scopedClientId='', scopedProjectId='', clientLabel='', settings={}, formId='invoiceForm', clientSelectId='invoiceClient', projectSelectId='invoiceProject', quoteSelectId='invoiceQuote'}) {
+function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invoiceNumberAttrs='', scopedClientId='', presetClientId='', scopedProjectId='', scopedQuoteId='', clientLabel='', settings={}, formId='invoiceForm', clientSelectId='invoiceClient', projectSelectId='invoiceProject', quoteSelectId='invoiceQuote'}) {
   const companyName = settings.company_name || 'Forged Systems LLC';
   const salesTaxRate = percentSetting(settings.sales_tax_rate ?? '0.07', 0.07);
+  const selectedClientId = scopedClientId || editing?.client_id || presetClientId || '';
+  const selectedProjectId = editing?.project_id || scopedProjectId || '';
+  const selectedQuoteId = editing?.quote_id || scopedQuoteId || '';
   const clientField = scopedClientId
-    ? `<input type="hidden" name="client_id" value="${escapeHtml(scopedClientId)}"><label>Bill To<input readonly value="${escapeHtml(clientLabel)}"></label>`
-    : `<label>Bill To<select name="client_id" id="${clientSelectId}" required>${clientOptions(editing?.client_id)}</select></label>`;
-  const projectClientId = scopedClientId || editing?.client_id || '';
+    ? `<input type="hidden" name="client_id" value="${escapeHtml(scopedClientId)}"><div class="invoice-context-readonly"><span>Client</span><strong>${clientLabel}</strong></div>`
+    : `<label>Client<select name="client_id" id="${clientSelectId}" required>${clientOptions(selectedClientId)}</select></label>`;
   const terms = invoiceTermsValue(editing?.terms, settings.default_invoice_terms);
   const materials = invoiceLineItemsFor(editing, 'material');
   const credits = (editing?.line_items || []).filter(item => ['credit','payment','adjustment'].includes(String(item.kind)));
-  return `<form id="${formId}" class="invoice-internal-sheet full" data-sales-tax-rate="${salesTaxRate}">
-    <div class="invoice-sheet-banner full">Invoice – Labor Services</div>
+  return `<form id="${formId}" class="invoice-internal-sheet invoice-editor-form full" data-sales-tax-rate="${salesTaxRate}">
     <input type="hidden" name="subtotal" value="${escapeHtml(editing?.subtotal || '0.00')}">
     <input type="hidden" name="tax_amount" value="${escapeHtml(editing?.tax_amount || '0.00')}">
     <input type="hidden" name="total_amount" value="${escapeHtml(editing?.total_amount || '0.00')}">
     <input type="hidden" name="amount_paid" value="${escapeHtml(editing?.amount_paid || '0.00')}">
-    <section class="invoice-sheet-section invoice-meta-section">
-      <div class="invoice-meta-grid">
-        <label>From<input readonly value="${escapeHtml(companyName)}"></label>
+    <section class="invoice-sheet-section invoice-editor-section invoice-details-section" aria-labelledby="${formId}DetailsHeading">
+      <div class="invoice-editor-section-head"><span>1</span><div><h3 id="${formId}DetailsHeading">Invoice Details</h3><p>Name, date, and manually track the Invoice status.</p></div></div>
+      <div class="invoice-details-grid">
         <label>Invoice #<input name="invoice_number" required${invoiceNumberAttrs} value="${escapeHtml(generatedInvoiceNumber)}"></label>
-        ${clientField}
-        <label>Related Quote<select name="quote_id" id="${quoteSelectId}">${quoteOptions(editing?.quote_id, projectClientId, editing?.project_id || scopedProjectId)}</select></label>
-        <label>Project<select name="project_id" id="${projectSelectId}">${projectOptions(editing?.project_id || scopedProjectId, projectClientId)}</select></label>
         <label>Status<select name="status"><option value="draft">Draft</option><option value="sent">Sent</option><option value="partially_paid">Partially Paid</option><option value="paid">Paid</option><option value="void">Void</option><option value="overdue">Overdue</option></select></label>
-        <label>Invoice Date<input name="invoice_date" type="date" required value="${escapeHtml(editing?.invoice_date || todayIso())}"></label>
-        <label>Due Date<input name="due_date" type="date" value="${escapeHtml(editing?.due_date)}"></label>
-        <label class="full">Invoice Title<input name="title" required value="${escapeHtml(editing?.title || 'Labor Services')}"></label>
+        <label class="invoice-title-field">Invoice title<input name="title" required value="${escapeHtml(editing?.title || 'Labor Services')}"></label>
+        <label>Invoice date<input name="invoice_date" type="date" required value="${escapeHtml(editing?.invoice_date || todayIso())}"></label>
+        <label>Due date<input name="due_date" type="date" value="${escapeHtml(editing?.due_date)}"></label>
+        <div class="invoice-context-readonly"><span>From</span><strong>${escapeHtml(companyName)}</strong></div>
       </div>
     </section>
 
-    <section class="invoice-sheet-section invoice-generator-section">
-      <div class="invoice-section-title">Labor Summary <span>(Auto-pulls completed, uninvoiced entries)</span></div>
-      <div class="invoice-labor-head"><span>Use</span><span>Date</span><span>Service</span><span>Hours</span><span>Rate</span><span>Line Total</span><span>Notes</span></div>
+    <section class="invoice-sheet-section invoice-editor-section invoice-context-section" aria-labelledby="${formId}ContextHeading">
+      <div class="invoice-editor-section-head"><span>2</span><div><h3 id="${formId}ContextHeading">Billing Context</h3><p>Connect the Invoice to its client, project, and optional source Quote.</p></div></div>
+      <div class="invoice-context-grid">
+        ${clientField}
+        <label>Project<select name="project_id" id="${projectSelectId}">${projectOptions(selectedProjectId, selectedClientId)}</select></label>
+        <label>Related Quote<select name="quote_id" id="${quoteSelectId}">${quoteOptions(selectedQuoteId, selectedClientId, selectedProjectId)}</select></label>
+      </div>
+    </section>
+
+    <section class="invoice-sheet-section invoice-editor-section invoice-labor-section" aria-labelledby="${formId}LaborHeading">
+      <div class="invoice-editor-section-head"><span>3</span><div><h3 id="${formId}LaborHeading">Available Uninvoiced Labor</h3><p>Selection behavior is unchanged; review each labor status before invoicing.</p></div></div>
+      <div class="invoice-labor-head"><span>Use</span><span>Status</span><span>Date</span><span>Service</span><span>Hours</span><span>Rate</span><span>Line Total</span><span>Notes</span></div>
       <div class="invoice-labor-rows"><div class="invoice-empty-row">Select a client/project to load available labor.</div></div>
       <p class="invoice-sheet-note">Checked labor entries will be attached to this invoice and marked as invoiced when saved.</p>
-      <div class="invoice-sheet-totals invoice-generator-totals">
-        <label>Labor Total<input id="invoiceLaborTotalDisplay" readonly value="${money(editing?.subtotal || 0)}"></label>
-      </div>
+      <div class="invoice-section-subtotal"><span>Selected labor</span><strong id="invoiceLaborTotalDisplay">${money(editing?.subtotal || 0)}</strong></div>
     </section>
 
-    <section class="invoice-sheet-section invoice-generator-section">
-      <div class="invoice-section-title">Additional Parts & Materials <span>(not reflected in the original quote)</span></div>
+    <section class="invoice-sheet-section invoice-editor-section invoice-materials-section" aria-labelledby="${formId}MaterialsHeading">
+      <div class="invoice-editor-section-head"><span>4</span><div><h3 id="${formId}MaterialsHeading">Additional Materials</h3><p>Add parts or materials that belong on this Invoice.</p></div></div>
       <div class="invoice-material-head"><span>Description</span><span>Qty</span><span>Unit Price</span><span>Line Total</span><span></span></div>
       <div id="invoiceMaterialRows">${materials.length ? materials.map(invoiceMaterialRowHtml).join('') : ''}</div>
-      <button class="mini" id="addInvoiceMaterialLine" type="button">+ Add Part / Material</button>
+      <button class="mini invoice-add-line" id="addInvoiceMaterialLine" type="button">+ Add Material</button>
     </section>
 
-    <section class="invoice-sheet-section invoice-generator-section">
-      <div class="invoice-section-title">Credits / Payments Applied</div>
+    <section class="invoice-sheet-section invoice-editor-section invoice-payments-section" aria-labelledby="${formId}PaymentsHeading">
+      <div class="invoice-editor-section-head"><span>5</span><div><h3 id="${formId}PaymentsHeading">Credits / Payments Applied</h3><p>Keep the existing payment, credit, and adjustment lines with this Invoice.</p></div></div>
       <div class="invoice-credit-head"><span>Type</span><span>Description</span><span>Amount</span><span></span></div>
       <div id="invoiceCreditRows">${credits.length ? credits.map(invoiceCreditRowHtml).join('') : ''}</div>
-      <button class="mini" id="addInvoiceCreditLine" type="button">+ Add Credit / Payment</button>
-      <p class="invoice-sheet-note">Break out deposits, credits, and payments separately, such as payment toward labor and payment toward cable.</p>
+      <button class="mini invoice-add-line" id="addInvoiceCreditLine" type="button">+ Add Credit / Payment</button>
+      <p class="invoice-sheet-note">These lines reduce Balance Due. They do not automatically change status or create Ledger entries.</p>
     </section>
 
-    <section class="invoice-sheet-section invoice-generator-section">
-      <div class="invoice-section-title">Invoice Totals</div>
-      <div class="invoice-sheet-totals invoice-generator-totals">
-        <label>Labor Total<input id="invoiceLaborTotalDisplay2" readonly value="${money(0)}"></label>
-        <label>Parts / Materials<input id="invoiceMaterialsTotalDisplay" readonly value="${money(0)}"></label>
-        <label>Taxable Base<input id="invoiceTaxableBaseDisplay" readonly value="${money(0)}"></label>
-        <label>Sales Tax<input id="invoiceTaxDisplay" readonly value="${money(editing?.tax_amount || 0)}"></label>
-        <label class="strong-total">Invoice Total<input id="invoiceTotalDisplay" readonly value="${money(editing?.total_amount || 0)}"></label>
-        <label>Credits / Payments Applied<input id="invoiceCreditsDisplay" readonly value="${money(editing?.amount_paid || 0)}"></label>
-        <label class="strong-total">Balance Due<input id="invoiceBalanceDisplay" readonly value="${money((Number(editing?.total_amount || 0) - Number(editing?.amount_paid || 0)) || 0)}"></label>
+    <section class="invoice-sheet-section invoice-editor-section invoice-totals-section" aria-labelledby="${formId}TotalsHeading">
+      <div class="invoice-editor-section-head"><span>6</span><div><h3 id="${formId}TotalsHeading">Invoice Totals</h3><p>Live preview using the existing Invoice calculation.</p></div></div>
+      <div class="invoice-totals-summary" aria-live="polite">
+        <div><span>Labor</span><input id="invoiceLaborTotalDisplay2" readonly aria-readonly="true" value="${money(0)}"></div>
+        <div><span>Materials</span><input id="invoiceMaterialsTotalDisplay" readonly aria-readonly="true" value="${money(0)}"></div>
+        <div><span>Subtotal</span><input id="invoiceSubtotalDisplay" readonly aria-readonly="true" value="${money(0)}"></div>
+        <div><span>Sales Tax</span><input id="invoiceTaxDisplay" readonly aria-readonly="true" value="${money(editing?.tax_amount || 0)}"></div>
+        <div class="invoice-total-row"><span>Invoice Total</span><input id="invoiceTotalDisplay" readonly aria-readonly="true" value="${money(editing?.total_amount || 0)}"></div>
+        <div><span>Credits / Payments Applied</span><input id="invoiceCreditsDisplay" readonly aria-readonly="true" value="${money(editing?.amount_paid || 0)}"></div>
+        <div class="invoice-balance-row"><span>Balance Due</span><input id="invoiceBalanceDisplay" readonly aria-readonly="true" value="${money((Number(editing?.total_amount || 0) - Number(editing?.amount_paid || 0)) || 0)}"></div>
       </div>
     </section>
 
-    <section class="invoice-sheet-section invoice-generator-section">
-      <div class="invoice-section-title">Payment Terms & Conditions</div>
-      <label class="full"><textarea name="terms" rows="4">${escapeHtml(terms)}</textarea></label>
+    <section class="invoice-sheet-section invoice-editor-section invoice-terms-notes-section" aria-labelledby="${formId}TermsHeading">
+      <div class="invoice-editor-section-head"><span>7</span><div><h3 id="${formId}TermsHeading">Terms and Notes</h3><p>Keep client-facing terms separate from internal ForgeOps context.</p></div></div>
+      <div class="invoice-terms-notes-grid">
+        <label>Payment Terms & Conditions<span>Included in the client-facing printout.</span><textarea name="terms" rows="6">${escapeHtml(terms)}</textarea></label>
+        <label>Internal Notes<span>Retained with the Invoice; existing print behavior is unchanged.</span><textarea name="notes" rows="6" placeholder="Internal context, reminders, or follow-up notes">${escapeHtml(editing?.notes)}</textarea></label>
+      </div>
+      <div class="invoice-print-note"><strong>Print content preserved</strong><span>Client approval and signature lines remain in the printed Invoice and Ledger packet.</span></div>
     </section>
 
-    <section class="invoice-sheet-section invoice-generator-section">
-      <div class="invoice-section-title">Client Approval & Acknowledgment</div>
-      <p class="invoice-approval-text">By signing below, the client acknowledges the labor services, additional materials, credits/payments, and payment terms listed in this invoice.</p>
-      <div class="invoice-signature-grid"><span>Client Name: _________________________________</span><span>Signature: ____________________________________</span><span>Date: _____________________</span></div>
-      <label class="full">Internal Notes<textarea name="notes" rows="3">${escapeHtml(editing?.notes)}</textarea></label>
-    </section>
-
-    <div class="form-actions"><button class="primary" type="submit">${editing ? 'Update Invoice' : 'Save Invoice'}</button>${editing ? `<button class="ghost" type="button" data-action="print" data-type="invoice" data-id="${editing.id}">Print Invoice</button>` : ''}<button class="ghost invoice-cancel" type="button">Cancel</button></div>
+    <footer class="form-actions invoice-editor-actions"><div class="invoice-editor-footer-total"><span>Balance Due</span><strong data-invoice-sticky-balance>${money((Number(editing?.total_amount || 0) - Number(editing?.amount_paid || 0)) || 0)}</strong></div><div class="invoice-editor-action-buttons"><button class="ghost invoice-cancel" type="button">Cancel</button>${editing ? `<button class="ghost" type="button" data-action="print" data-type="invoice" data-id="${editing.id}">Print</button>` : ''}<button class="primary" type="submit">${editing ? 'Update Invoice' : 'Create Invoice'}</button></div></footer>
   </form>`;
+}
+
+function invoiceEditorShellHtml({editing=null, closeButtonId='', ...options}) {
+  const formId = options.formId || 'invoiceForm';
+  const closeId = closeButtonId ? ` id="${closeButtonId}"` : '';
+  return `<div class="modal-card wide-modal invoice-editor-shell"><header class="modal-header invoice-editor-header"><div><p class="invoice-editor-eyebrow">Invoice workflow</p><h2 id="${formId}Title">${editing ? 'Edit Invoice' : 'Create Invoice'}</h2><p>${editing ? 'Review billing details, applied payments, and the current balance.' : 'Bill actual labor and additional materials for a client or project.'}</p></div><button class="ghost modal-close"${closeId} type="button" aria-label="Close invoice form">×</button></header>${invoiceInternalSheetHtml({editing, ...options})}</div>`;
 }
 
 function invoiceLaborRowHtml(entry, currentInvoiceId=null) {
   const linkedToCurrent = currentInvoiceId && Number(entry.invoice_id) === Number(currentInvoiceId);
   const checked = linkedToCurrent || (!currentInvoiceId && !entry.is_invoiced);
-  return `<div class="invoice-labor-row" data-labor-id="${entry.id}" data-line-total="${Number(entry.line_total || 0)}">
-    <label class="tiny-check"><input class="invoice-labor-check" type="checkbox" ${checked ? 'checked' : ''}> Use</label>
-    <span>${escapeHtml(entry.work_date || '')}</span>
-    <span>${escapeHtml(entry.service_type || '')}</span>
-    <span>${escapeHtml(entry.hours || '0.00')}</span>
-    <span>${money(entry.hourly_rate || 0)}</span>
-    <span>${money(entry.line_total || 0)}</span>
-    <span class="invoice-notes-cell">${escapeHtml(entry.notes || '')}</span>
-  </div>`;
+  return `<article class="invoice-labor-row invoice-labor-card" data-labor-id="${entry.id}" data-line-total="${Number(entry.line_total || 0)}">
+    <label class="invoice-labor-select"><input class="invoice-labor-check" type="checkbox" ${checked ? 'checked' : ''}><span>Use</span></label>
+    <span class="invoice-labor-status"><small>Status</small><span class="status">${statusLabel(entry.status)}</span></span>
+    <span><small>Date</small>${escapeHtml(entry.work_date || '')}</span>
+    <span class="invoice-labor-service"><small>Service</small><strong>${escapeHtml(entry.service_type || '')}</strong></span>
+    <span><small>Hours</small>${escapeHtml(entry.hours || '0.00')}</span>
+    <span><small>Rate</small>${money(entry.hourly_rate || 0)}</span>
+    <span><small>Line total</small><strong>${money(entry.line_total || 0)}</strong></span>
+    <span class="invoice-notes-cell"><small>Notes</small>${escapeHtml(entry.notes || 'No notes')}</span>
+  </article>`;
 }
 
 function wireInvoiceLineEditor(container) {
@@ -607,14 +617,16 @@ function wireInvoiceLineEditor(container) {
   if (!form) return;
   const materialRows = form.querySelector('#invoiceMaterialRows');
   const creditRows = form.querySelector('#invoiceCreditRows');
-  form.querySelector('#addInvoiceMaterialLine')?.addEventListener('click', () => {
+  const addMaterial = form.querySelector('#addInvoiceMaterialLine');
+  const addCredit = form.querySelector('#addInvoiceCreditLine');
+  if (addMaterial) addMaterial.onclick = () => {
     materialRows?.insertAdjacentHTML('beforeend', invoiceMaterialRowHtml({quantity:'1.00', unit_price:'0.00', line_total:'0.00'}));
     wireInvoiceLineEditor(container); recalcInvoiceEditor(container);
-  }, { once: true });
-  form.querySelector('#addInvoiceCreditLine')?.addEventListener('click', () => {
+  };
+  if (addCredit) addCredit.onclick = () => {
     creditRows?.insertAdjacentHTML('beforeend', invoiceCreditRowHtml({kind:'payment', line_total:'0.00'}));
     wireInvoiceLineEditor(container); recalcInvoiceEditor(container);
-  }, { once: true });
+  };
   form.querySelectorAll('.invoice-remove-line').forEach(btn => btn.onclick = () => { btn.closest('.invoice-material-row,.invoice-credit-row')?.remove(); recalcInvoiceEditor(container); });
   form.querySelectorAll('#invoiceMaterialRows input,#invoiceMaterialRows select,#invoiceCreditRows input,#invoiceCreditRows select').forEach(el => el.oninput = () => recalcInvoiceEditor(container));
 }
@@ -653,15 +665,16 @@ function recalcInvoiceEditor(container) {
   const laborIds = selectedRows.map(row => Number(row.dataset.laborId)).filter(Boolean);
   const setVal = (name, value) => { const el = form.querySelector(`[name="${name}"]`); if (el) el.value = decimalString(value); };
   setVal('subtotal', subtotal); setVal('tax_amount', tax); setVal('total_amount', total); setVal('amount_paid', paid);
-  const display = (selector, value) => { form.querySelectorAll(selector).forEach(el => el.value = money(value)); };
+  const display = (selector, value) => { form.querySelectorAll(selector).forEach(el => { if ('value' in el) el.value = money(value); else el.textContent = money(value); }); };
   display('#invoiceLaborTotalDisplay', laborTotal);
   display('#invoiceLaborTotalDisplay2', laborTotal);
   display('#invoiceMaterialsTotalDisplay', materialsTotal);
-  display('#invoiceTaxableBaseDisplay', taxableBase);
+  display('#invoiceSubtotalDisplay', taxableBase);
   display('#invoiceTaxDisplay', tax);
   display('#invoiceTotalDisplay', total);
   display('#invoiceCreditsDisplay', paid);
   display('#invoiceBalanceDisplay', balance);
+  display('[data-invoice-sticky-balance]', balance);
   return {subtotal, tax, total, paid, balance, laborIds, lineItems};
 }
 
@@ -685,7 +698,7 @@ async function refreshInvoiceLaborRows(container, {clientId='', projectId='', in
     });
     rows.innerHTML = items.length
       ? items.map(entry => invoiceLaborRowHtml(entry, invoiceId)).join('')
-      : '<div class="invoice-empty-row">No completed uninvoiced labor found for this selection.</div>';
+      : '<div class="invoice-empty-row">No available uninvoiced labor found for this selection.</div>';
     rows.querySelectorAll('.invoice-labor-check').forEach(check => check.addEventListener('change', () => recalcInvoiceEditor(container)));
   } catch (err) {
     rows.innerHTML = `<div class="invoice-empty-row error-text">Could not load labor: ${escapeHtml(err.message)}</div>`;
@@ -1149,6 +1162,51 @@ function rowActions(type, id) {
   return `<div class="row-actions"><button class="mini" data-action="edit" data-type="${type}" data-id="${id}">Edit</button>${print}<button class="mini danger-mini" data-action="delete" data-type="${type}" data-id="${id}">Delete</button></div>`;
 }
 
+function quoteRowActions(id) {
+  return `<div class="row-actions quote-invoice-actions"><button class="mini" data-action="edit" data-type="quote" data-id="${id}">Edit</button><button class="mini" data-action="print" data-type="quote" data-id="${id}">Print</button><button class="mini" data-action="create-invoice-from-quote" data-quote-id="${id}">Create Invoice</button><button class="mini danger-mini" data-action="delete" data-type="quote" data-id="${id}">Delete</button></div>`;
+}
+
+function invoiceCardHtml(invoice) {
+  const project = projectName(invoice.project_id);
+  return `<article class="invoice-record-card" data-invoice-card data-invoice-id="${Number(invoice.id)}">
+    <button class="invoice-card-open" type="button" data-invoice-id="${Number(invoice.id)}" aria-label="Open invoice ${escapeHtml(invoice.invoice_number)}">
+      <span class="invoice-card-top"><strong>${escapeHtml(invoice.invoice_number)}</strong><span class="status">${statusLabel(invoice.status)}</span></span>
+      <span class="invoice-card-main"><b>${escapeHtml(invoice.title)}</b><span>${escapeHtml(clientName(invoice.client_id))}</span>${project ? `<span>${escapeHtml(project)}</span>` : ''}</span>
+      <span class="invoice-card-bottom"><span><small>Due</small><b>${invoice.due_date ? shortDate(invoice.due_date) : 'No due date'}</b></span><span><small>Total</small><strong>${money(invoice.total_amount)}</strong></span><span class="invoice-card-balance"><small>Balance</small><strong>${money(invoice.balance_due)}</strong></span></span>
+    </button>
+    <div class="invoice-card-actions">${rowActions('invoice', invoice.id)}</div>
+  </article>`;
+}
+
+function invoiceListEmptyHtml({filtered=false, search=false}={}) {
+  if (search) return `<section class="panel invoice-list-empty hidden" id="invoiceSearchEmpty"><strong>No invoices match this search.</strong><span>Try another search or reset the filters.</span><button class="ghost" type="button" data-reset-invoice-filters>Reset Filters</button></section>`;
+  if (filtered) return `<section class="panel invoice-list-empty"><strong>No invoices match these filters.</strong><span>Reset the filters to see every Invoice.</span><button class="ghost" type="button" data-reset-invoice-filters>Reset Filters</button></section>`;
+  return `<section class="panel invoice-list-empty"><strong>No invoices yet.</strong><span>Create an Invoice to bill actual labor and additional materials.</span><button class="primary" id="emptyAddInvoice" type="button">Add Invoice</button></section>`;
+}
+
+function attachInvoiceSearch(visibleCount) {
+  const input = root.querySelector('#invoiceSearch');
+  if (!input) return;
+  const tableRows = [...root.querySelectorAll('.invoices-table .invoice-record-row[data-invoice-id]')];
+  const cards = [...root.querySelectorAll('[data-invoice-card]')];
+  const empty = root.querySelector('#invoiceSearchEmpty');
+  const resultCount = root.querySelector('#invoiceResultCount');
+  const apply = () => {
+    const query = input.value.trim().toLowerCase();
+    let shown = 0;
+    cards.forEach(card => {
+      const visible = !query || card.textContent.toLowerCase().includes(query);
+      card.classList.toggle('hidden', !visible);
+      if (visible) shown += 1;
+    });
+    tableRows.forEach(row => row.classList.toggle('hidden', Boolean(query) && !row.textContent.toLowerCase().includes(query)));
+    empty?.classList.toggle('hidden', !query || shown > 0);
+    if (resultCount) resultCount.textContent = query ? `${shown} of ${visibleCount} invoice${visibleCount === 1 ? '' : 's'}` : `${visibleCount} invoice${visibleCount === 1 ? '' : 's'}`;
+  };
+  input.addEventListener('input', apply);
+  apply();
+}
+
 function quoteCardHtml(quote) {
   const project = projectName(quote.project_id);
   return `<article class="quote-record-card" data-quote-card data-quote-id="${Number(quote.id)}">
@@ -1157,7 +1215,7 @@ function quoteCardHtml(quote) {
       <span class="quote-card-main"><b>${escapeHtml(quote.title)}</b><span>${escapeHtml(clientName(quote.client_id))}</span>${project ? `<span>${escapeHtml(project)}</span>` : ''}</span>
       <span class="quote-card-bottom"><span><small>Total</small><strong>${money(quote.total_amount)}</strong></span><span><small>Issued</small><b>${shortDate(quote.quote_date)}</b></span>${quote.valid_until ? `<span><small>Valid through</small><b>${shortDate(quote.valid_until)}</b></span>` : ''}</span>
     </button>
-    <div class="quote-card-actions">${rowActions('quote', quote.id)}</div>
+    <div class="quote-card-actions">${quoteRowActions(quote.id)}</div>
   </article>`;
 }
 
@@ -1243,6 +1301,93 @@ function setupQuoteModal({editing=null, rerender}) {
   modal.querySelector('#cancelQuoteModal')?.addEventListener('click', closeModal);
   modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
   if (editing) openModal();
+}
+
+function setInvoiceEditorPageState(active) {
+  document.body.classList.toggle('invoice-editor-open', active);
+  const mobileNavigation = document.querySelector('.mobile-bottom-nav');
+  if (!mobileNavigation) return;
+  mobileNavigation.inert = active;
+  if (active) mobileNavigation.setAttribute('aria-hidden', 'true');
+  else mobileNavigation.removeAttribute('aria-hidden');
+}
+
+function setupInvoiceModal({editing=null, autoOpen=false, rerender}) {
+  const modal = root.querySelector('#invoiceModal');
+  const openButton = root.querySelector('#openInvoiceModal');
+  if (!modal || !openButton) return;
+  let inertPeers = [];
+  const setBackgroundInert = active => {
+    if (active) inertPeers = [...root.children].filter(child => child !== modal);
+    inertPeers.forEach(child => { child.inert = active; });
+  };
+  const onKeydown = event => { if (event.key === 'Escape') closeModal(); };
+  const openModal = () => {
+    if (!state.invoiceReturnFocusSelector) state.invoiceReturnFocusSelector = '#openInvoiceModal';
+    modal.classList.remove('hidden');
+    setBackgroundInert(true);
+    setInvoiceEditorPageState(true);
+    document.addEventListener('keydown', onKeydown);
+    setTimeout(() => modal.querySelector(editing ? 'input[name="invoice_number"]' : 'input[name="title"]')?.focus(), 0);
+  };
+  const closeModal = async () => {
+    document.removeEventListener('keydown', onKeydown);
+    setBackgroundInert(false);
+    setInvoiceEditorPageState(false);
+    const focusSelector = state.invoiceReturnFocusSelector || '#openInvoiceModal';
+    state.invoiceReturnFocusSelector = '';
+    await Promise.resolve(rerender());
+    setTimeout(() => (root.querySelector(focusSelector) || root.querySelector('#openInvoiceModal'))?.focus(), 0);
+  };
+  openButton.onclick = openModal;
+  modal.querySelector('#closeInvoiceModal')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
+  if (editing || autoOpen) openModal();
+}
+
+async function startInvoiceFromQuote(quoteId) {
+  await preloadLookups(true);
+  const quote = state.quotes.find(item => Number(item.id) === Number(quoteId));
+  if (!quote) throw new Error('Could not find that Quote. Refresh and try again.');
+  const linkedInvoices = state.invoices.filter(invoice => Number(invoice.quote_id) === Number(quoteId));
+  if (linkedInvoices.length) {
+    const numbers = linkedInvoices.slice(0, 4).map(invoice => invoice.invoice_number).filter(Boolean);
+    const remaining = linkedInvoices.length - numbers.length;
+    const references = numbers.length ? ` (${numbers.join(', ')}${remaining > 0 ? `, plus ${remaining} more` : ''})` : '';
+    const noun = linkedInvoices.length === 1 ? 'invoice' : 'invoices';
+    if (!confirm(`This quote is already linked to ${linkedInvoices.length} ${noun}${references}. Create another invoice?`)) return;
+  }
+
+  const scopedModalOpen = Boolean(document.querySelector('#clientQuickModal'));
+  if (scopedModalOpen || state.clientDetailId || state.projectDetailId || state.page === 'dashboard') {
+    await openClientQuickModal(Number(quote.client_id), 'invoices', null, {
+      projectId: quote.project_id || null,
+      quoteId: quote.id,
+      returnToProject: Boolean(state.projectDetailId),
+      returnToDashboard: state.page === 'dashboard',
+    });
+    return;
+  }
+
+  state.page = 'invoices';
+  state.editing = null;
+  state.clientDetailId = null;
+  state.projectDetailId = null;
+  updateActiveNavigation('invoices');
+  document.querySelector('#pageTitle').textContent = titles.invoices[0];
+  document.querySelector('#pageSubtitle').textContent = titles.invoices[1];
+  document.querySelector('#mobilePageTitle').textContent = titles.invoices[0];
+  await renderInvoices(null, {clientId: quote.client_id, projectId: quote.project_id, quoteId: quote.id, autoOpen: true});
+}
+
+function attachQuoteInvoiceActions(scope=root) {
+  scope.querySelectorAll('[data-action="create-invoice-from-quote"][data-quote-id]').forEach(button => {
+    button.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      startInvoiceFromQuote(Number(button.dataset.quoteId)).catch(err => alert(err.message || 'Unable to start the Invoice.'));
+    };
+  });
 }
 
 
@@ -1481,7 +1626,10 @@ function attachQuoteRowClicks() {
 
 function attachInvoiceRowClicks() {
   root.querySelectorAll('.invoices-table .invoice-record-row[data-invoice-id]').forEach(row => {
-    const open = () => editRecord('invoice', Number(row.dataset.invoiceId));
+    const open = () => {
+      state.invoiceReturnFocusSelector = `[data-action="edit"][data-type="invoice"][data-id="${Number(row.dataset.invoiceId)}"]`;
+      return editRecord('invoice', Number(row.dataset.invoiceId));
+    };
     row.addEventListener('click', event => {
       if (event.target.closest('button, a, input, select, textarea')) return;
       open();
@@ -1492,6 +1640,12 @@ function attachInvoiceRowClicks() {
       event.preventDefault();
       open();
     });
+  });
+  root.querySelectorAll('.invoice-card-open[data-invoice-id]').forEach(button => {
+    button.onclick = () => {
+      state.invoiceReturnFocusSelector = `[data-action="edit"][data-type="invoice"][data-id="${Number(button.dataset.invoiceId)}"]`;
+      return editRecord('invoice', Number(button.dataset.invoiceId));
+    };
   });
 }
 
@@ -1878,7 +2032,7 @@ async function renderClientDetail(clientId, tab=state.clientDetailTab || 'overvi
   const expenses = ledger.filter(entry => ['expense','cogs'].includes(entry.kind) && !TAX_PAYMENT_CATEGORIES.has(entry.category || '')).reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
 
   const projectRows = projects.map(project => ({attrs:`role="button" tabindex="0" data-related-type="project" data-related-id="${project.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(project.name)}</strong><span>${escapeHtml(project.site_address || 'No site address')}</span></div>`,`<span class="status">${statusLabel(project.status)}</span>`,shortDate(project.start_date),rowActions('project', project.id)]}));
-  const quoteRows = quotes.map(quote => ({attrs:`role="button" tabindex="0" data-related-type="quote" data-related-id="${quote.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(quote.quote_number)}</strong><span>${escapeHtml(quote.title)}</span></div>`,escapeHtml(projectName(quote.project_id) || 'No project'),`<span class="status">${statusLabel(quote.status)}</span>`,money(quote.total_amount),rowActions('quote', quote.id)]}));
+  const quoteRows = quotes.map(quote => ({attrs:`role="button" tabindex="0" data-related-type="quote" data-related-id="${quote.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(quote.quote_number)}</strong><span>${escapeHtml(quote.title)}</span></div>`,escapeHtml(projectName(quote.project_id) || 'No project'),`<span class="status">${statusLabel(quote.status)}</span>`,money(quote.total_amount),quoteRowActions(quote.id)]}));
   const invoiceRows = invoices.map(invoice => ({attrs:`role="button" tabindex="0" data-related-type="invoice" data-related-id="${invoice.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(invoice.invoice_number)}</strong><span>${escapeHtml(invoice.title)}</span></div>`,escapeHtml(projectName(invoice.project_id) || 'No project'),`<span class="status">${statusLabel(invoice.status)}</span>`,money(invoice.balance_due),rowActions('invoice', invoice.id)]}));
   const laborRows = labor.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="labor" data-related-id="${entry.id}"`, cells:[shortDate(entry.work_date),`<div class="record-primary"><strong>${escapeHtml(entry.service_type)}</strong><span>${escapeHtml(projectName(entry.project_id) || 'No project')}</span></div>`,`${escapeHtml(entry.hours)} hr`,money(entry.line_total),entry.is_invoiced ? '<span class="status">Invoiced</span>' : '<span class="status attention-status">Uninvoiced</span>',rowActions('labor', entry.id)]}));
   const ledgerRows = ledger.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="ledger" data-related-id="${entry.id}"`, cells:[shortDate(entry.entry_date),`<div class="record-primary"><strong>${escapeHtml(ledgerKindLabel(entry.kind))}</strong><span>${escapeHtml(entry.category)}</span></div>`,escapeHtml(projectName(entry.project_id) || 'No project'),money(entry.amount),entry.receipt_id ? receiptPreviewButton(entry.receipt_id) : '—',rowActions('ledger', entry.id)]}));
@@ -1928,6 +2082,7 @@ async function renderClientDetail(clientId, tab=state.clientDetailTab || 'overvi
     return editRecord(type, id);
   });
   attachRowActions();
+  attachQuoteInvoiceActions();
 }
 
 async function renderProjects(editId=null, returnProjectId=null) {
@@ -2037,7 +2192,7 @@ async function renderProjectDetail(projectId, tab=state.projectDetailTab || 'ove
   const revenue = ledger.filter(entry => ['revenue','income'].includes(entry.kind)).reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
   const expenses = ledger.filter(entry => ['expense','cogs'].includes(entry.kind) && !TAX_PAYMENT_CATEGORIES.has(entry.category || '')).reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
 
-  const quoteRows = quotes.map(quote => ({attrs:`role="button" tabindex="0" data-related-type="quote" data-related-id="${quote.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(quote.quote_number)}</strong><span>${escapeHtml(quote.title)}</span></div>`,`<span class="status">${statusLabel(quote.status)}</span>`,shortDate(quote.quote_date),money(quote.total_amount),rowActions('quote', quote.id)]}));
+  const quoteRows = quotes.map(quote => ({attrs:`role="button" tabindex="0" data-related-type="quote" data-related-id="${quote.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(quote.quote_number)}</strong><span>${escapeHtml(quote.title)}</span></div>`,`<span class="status">${statusLabel(quote.status)}</span>`,shortDate(quote.quote_date),money(quote.total_amount),quoteRowActions(quote.id)]}));
   const invoiceRows = invoices.map(invoice => ({attrs:`role="button" tabindex="0" data-related-type="invoice" data-related-id="${invoice.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(invoice.invoice_number)}</strong><span>${escapeHtml(invoice.title)}</span></div>`,`<span class="status">${statusLabel(invoice.status)}</span>`,shortDate(invoice.due_date),money(invoice.balance_due),rowActions('invoice', invoice.id)]}));
   const laborRows = labor.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="labor" data-related-id="${entry.id}"`, cells:[shortDate(entry.work_date),`<div class="record-primary"><strong>${escapeHtml(entry.service_type)}</strong><span>${escapeHtml(entry.notes || 'No notes')}</span></div>`,`${escapeHtml(entry.hours)} hr`,money(entry.line_total),entry.is_invoiced ? '<span class="status">Invoiced</span>' : '<span class="status attention-status">Uninvoiced</span>',rowActions('labor', entry.id)]}));
   const ledgerRows = ledger.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="ledger" data-related-id="${entry.id}"`, cells:[shortDate(entry.entry_date),`<div class="record-primary"><strong>${escapeHtml(ledgerKindLabel(entry.kind))}</strong><span>${escapeHtml(entry.category)}</span></div>`,money(entry.amount),entry.receipt_id ? receiptPreviewButton(entry.receipt_id) : '—',rowActions('ledger', entry.id)]}));
@@ -2084,6 +2239,7 @@ async function renderProjectDetail(projectId, tab=state.projectDetailTab || 'ove
     return openClientQuickModal(project.client_id, typeMap[row.dataset.relatedType], Number(row.dataset.relatedId), {projectId, returnToProject:true});
   });
   attachRowActions();
+  attachQuoteInvoiceActions();
 }
 
 async function renderQuotes(editId=null) {
@@ -2103,7 +2259,7 @@ async function renderQuotes(editId=null) {
     return matchesStatus && matchesClient;
   });
   const quoteClientOptions = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-  const quoteRows = visibleQuotes.map(q => [escapeHtml(q.quote_number),escapeHtml(q.title),escapeHtml(clientName(q.client_id)),escapeHtml(projectName(q.project_id)),`<span class="status">${statusLabel(q.status)}</span>`,q.quote_date,q.valid_until,money(q.total_amount),rowActions('quote', q.id)]);
+  const quoteRows = visibleQuotes.map(q => [escapeHtml(q.quote_number),escapeHtml(q.title),escapeHtml(clientName(q.client_id)),escapeHtml(projectName(q.project_id)),`<span class="status">${statusLabel(q.status)}</span>`,q.quote_date,q.valid_until,money(q.total_amount),quoteRowActions(q.id)]);
   const quoteRowAttrs = visibleQuotes.map(q => `class="quote-record-row" role="button" tabindex="0" data-quote-id="${Number(q.id)}"`);
   const activeFilterCount = Number(quoteStatusFilterValue !== 'all') + Number(quoteClientFilterValue !== 'all');
   const listHtml = data.items.length === 0
@@ -2142,10 +2298,12 @@ async function renderQuotes(editId=null) {
   setupQuoteModal({editing, rerender:renderQuotes});
   attachQuoteSearch(visibleQuotes.length);
   attachRowActions();
+  attachQuoteInvoiceActions();
   attachQuoteRowClicks();
 }
 
-async function renderInvoices(editId=null) {
+async function renderInvoices(editId=null, handoff={}) {
+  setInvoiceEditorPageState(false);
   const data = await api('/api/invoices?page_size=100');
   state.invoices = data.items;
   const settingsResponse = await api('/api/admin/settings');
@@ -2153,16 +2311,52 @@ async function renderInvoices(editId=null) {
   const editing = editId ? data.items.find(i => i.id === editId) : null;
   const generatedInvoiceNumber = editing?.invoice_number || await nextInvoiceNumber();
   const invoiceNumberAttrs = editing ? '' : ' readonly aria-readonly="true" title="Generated automatically to prevent duplicate invoice numbers"';
-  const invoiceRows = data.items.map(i => [escapeHtml(i.invoice_number),escapeHtml(i.title),escapeHtml(clientName(i.client_id)),escapeHtml(projectName(i.project_id)),escapeHtml(quoteName(i.quote_id)),`<span class="status">${statusLabel(i.status)}</span>`,i.invoice_date,money(i.total_amount),money(i.amount_paid),money(i.balance_due),rowActions('invoice', i.id)]);
-  const invoiceRowAttrs = data.items.map(i => `class="invoice-record-row" role="button" tabindex="0" data-invoice-id="${Number(i.id)}"`);
-  root.innerHTML = `<div class="page-actions"><label class="search-field compact-search">Search<input id="invoiceSearch" type="search" placeholder="Search invoices..."></label><button class="primary" id="openInvoiceModal" type="button">+ Add Invoice</button></div>
-  ${table(['Invoice #','Title','Client','Project','Quote','Status','Date','Total','Paid','Balance','Actions'], invoiceRows, 'invoices-table', invoiceRowAttrs)}
-  <div id="invoiceModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="invoiceModalTitle"><div class="modal-card wide-modal"><div class="modal-header"><div><h2 id="invoiceModalTitle">${editing ? 'Edit Invoice' : 'Add Invoice'}</h2><p>${editing ? 'Update invoice labor and payment details.' : 'Create an invoice linked to a client/project.'}</p></div><button class="ghost modal-close" id="closeInvoiceModal" type="button" aria-label="Close invoice form">×</button></div>
-    ${invoiceInternalSheetHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, settings, formId:'invoiceForm', clientSelectId:'invoiceClient', projectSelectId:'invoiceProject', quoteSelectId:'invoiceQuote'})}
-  </div></div>`;
+  const invoiceStatusFilterValue = state.invoiceStatusFilter || 'all';
+  const invoiceClientFilterValue = state.invoiceClientFilter || 'all';
+  const visibleInvoices = data.items.filter(invoice => {
+    const matchesStatus = invoiceStatusFilterValue === 'all' || String(invoice.status || '') === invoiceStatusFilterValue;
+    const matchesClient = invoiceClientFilterValue === 'all' || String(invoice.client_id || '') === String(invoiceClientFilterValue);
+    return matchesStatus && matchesClient;
+  });
+  const invoiceClientOptions = state.clients.map(client => `<option value="${client.id}">${escapeHtml(client.name)}</option>`).join('');
+  const invoiceRows = visibleInvoices.map(invoice => {
+    const project = projectName(invoice.project_id);
+    const relatedQuote = quoteName(invoice.quote_id);
+    return [
+      `<div class="invoice-list-primary"><strong>${escapeHtml(invoice.invoice_number)}</strong><span>${escapeHtml(invoice.title)}</span>${relatedQuote ? `<small>Related: ${escapeHtml(relatedQuote)}</small>` : ''}</div>`,
+      `<div class="invoice-list-context"><strong>${escapeHtml(clientName(invoice.client_id))}</strong><span>${escapeHtml(project || 'No project')}</span></div>`,
+      `<span class="status">${statusLabel(invoice.status)}</span>`,
+      shortDate(invoice.invoice_date),
+      invoice.due_date ? shortDate(invoice.due_date) : '—',
+      money(invoice.total_amount),
+      `<strong class="invoice-balance-value">${money(invoice.balance_due)}</strong>`,
+      rowActions('invoice', invoice.id),
+    ];
+  });
+  const invoiceRowAttrs = visibleInvoices.map(invoice => `class="invoice-record-row" role="button" tabindex="0" data-invoice-id="${Number(invoice.id)}"`);
+  const activeFilterCount = Number(invoiceStatusFilterValue !== 'all') + Number(invoiceClientFilterValue !== 'all');
+  const listHtml = data.items.length === 0
+    ? invoiceListEmptyHtml()
+    : visibleInvoices.length === 0
+      ? invoiceListEmptyHtml({filtered:true})
+      : `<div class="invoice-desktop-list">${table(['Invoice','Client / Project','Status','Issued','Due','Total','Balance','Actions'], invoiceRows, 'invoices-table', invoiceRowAttrs)}</div><div class="invoice-mobile-list" aria-label="Invoices">${visibleInvoices.map(invoiceCardHtml).join('')}</div>${invoiceListEmptyHtml({search:true})}`;
+  root.innerHTML = `<div class="invoice-list-controls panel"><div class="invoice-list-primary-controls"><label class="search-field compact-search">Search Invoices<input id="invoiceSearch" type="search" placeholder="Invoice number, title, client, project, or status"></label><button class="primary" id="openInvoiceModal" type="button">Add Invoice</button></div><div class="invoice-filter-row"><label class="filter-field">Status<select id="invoiceStatusFilter"><option value="all">All Statuses</option><option value="draft">Draft</option><option value="sent">Sent</option><option value="partially_paid">Partially Paid</option><option value="paid">Paid</option><option value="void">Void</option><option value="overdue">Overdue</option></select></label><label class="filter-field">Client<select id="invoiceClientFilter"><option value="all">All Clients</option>${invoiceClientOptions}</select></label><button class="ghost" id="resetInvoiceFilters" type="button">Reset Filters</button><span class="invoice-filter-indicator ${activeFilterCount ? '' : 'hidden'}">${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}</span><span class="invoice-result-count" id="invoiceResultCount">${visibleInvoices.length} invoice${visibleInvoices.length === 1 ? '' : 's'}</span></div></div>
+    <div class="invoice-list-results">${listHtml}</div>
+    <div id="invoiceModal" class="modal-backdrop invoice-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="invoiceFormTitle">${invoiceEditorShellHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, presetClientId: handoff.clientId || '', scopedProjectId: handoff.projectId || '', scopedQuoteId: handoff.quoteId || '', settings, formId:'invoiceForm', clientSelectId:'invoiceClient', projectSelectId:'invoiceProject', quoteSelectId:'invoiceQuote', closeButtonId:'closeInvoiceModal'})}</div>`;
+  const statusFilter = root.querySelector('#invoiceStatusFilter');
+  const clientFilter = root.querySelector('#invoiceClientFilter');
+  const searchInput = root.querySelector('#invoiceSearch');
+  statusFilter.value = state.invoiceStatusFilter || 'all';
+  clientFilter.value = state.invoiceClientFilter || 'all';
+  statusFilter.onchange = () => { state.invoiceStatusFilter = statusFilter.value; renderInvoices(); };
+  clientFilter.onchange = () => { state.invoiceClientFilter = clientFilter.value; renderInvoices(); };
+  const resetFilters = () => { state.invoiceStatusFilter = 'all'; state.invoiceClientFilter = 'all'; if (searchInput) searchInput.value = ''; renderInvoices(); };
+  root.querySelector('#resetInvoiceFilters').onclick = resetFilters;
+  root.querySelectorAll('[data-reset-invoice-filters]').forEach(button => { button.onclick = resetFilters; });
+  root.querySelector('#emptyAddInvoice')?.addEventListener('click', () => root.querySelector('#openInvoiceModal')?.click());
   await wireInvoiceInternalForm(root, {formId:'invoiceForm', clientSelectId:'invoiceClient', projectSelectId:'invoiceProject', quoteSelectId:'invoiceQuote', editing, onSave: async payload => { try { if (editing) await api(`/api/invoices/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/invoices', {method:'POST', body: JSON.stringify(payload)}); show(editing ? 'Invoice updated' : 'Invoice saved'); await preloadLookups(); await renderInvoices(); } catch (err) { alert(err.message); } }});
-  setupModal('invoiceModal','openInvoiceModal','closeInvoiceModal','cancelInvoiceModal',editing,renderInvoices, editing ? 'input[name="invoice_number"]' : 'input[name="title"]');
-  attachPageSearch('invoiceSearch');
+  setupInvoiceModal({editing, autoOpen:Boolean(handoff.autoOpen), rerender:renderInvoices});
+  attachInvoiceSearch(visibleInvoices.length);
   attachRowActions();
   attachInvoiceRowClicks();
 }
@@ -2267,7 +2461,10 @@ function closeClientQuickModal() {
   const modal = document.querySelector('#clientQuickModal');
   if (!modal) return;
   if (modal._quoteEscapeHandler) document.removeEventListener('keydown', modal._quoteEscapeHandler);
-  if (modal.classList.contains('quote-editor-backdrop')) [...root.children].forEach(child => { child.inert = false; });
+  if (modal._invoiceEscapeHandler) document.removeEventListener('keydown', modal._invoiceEscapeHandler);
+  const closesInvoiceEditor = modal.classList.contains('invoice-editor-backdrop');
+  if (modal.classList.contains('quote-editor-backdrop') || closesInvoiceEditor) [...root.children].forEach(child => { child.inert = false; });
+  if (closesInvoiceEditor) setInvoiceEditorPageState(false);
   const returnFocus = modal._quoteReturnFocus;
   modal.remove();
   setTimeout(() => returnFocus?.isConnected && returnFocus.focus?.(), 0);
@@ -2300,6 +2497,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
   if (editId && !editing) throw new Error('Could not find that record to edit. Refresh and try again.');
   const isEdit = Boolean(editing);
   const scopedProjectId = editing?.project_id || opts.projectId || '';
+  const scopedQuoteId = editing?.quote_id || opts.quoteId || '';
   const clientLabel = clientScopeLabel(clientId);
   const clientHidden = `<input type="hidden" name="client_id" value="${clientId}"><label>Client<input value="${clientLabel}" disabled></label>`;
   const wrapper = document.createElement('div');
@@ -2389,10 +2587,15 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     const settings = settingsResponse.settings || {};
     const generatedInvoiceNumber = editing?.invoice_number || await nextInvoiceNumber();
     const invoiceNumberAttrs = isEdit ? '' : ' readonly aria-readonly="true" title="Generated automatically to prevent duplicate invoice numbers"';
-    wrapper.innerHTML = `<div class="modal-card wide-modal"><div class="modal-header"><div><h2>${isEdit ? 'Edit Invoice' : 'Add Invoice'}</h2><p>${isEdit ? 'Update this labor invoice without leaving the client.' : `Create a labor invoice for ${clientLabel}.`}</p></div><button class="ghost modal-close" type="button" aria-label="Close invoice form">×</button></div>
-      ${invoiceInternalSheetHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, scopedClientId: clientId, scopedProjectId, clientLabel, settings, formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote'})}
-    </div>`;
+    wrapper.classList.add('invoice-editor-backdrop');
+    wrapper.setAttribute('aria-labelledby', 'clientInvoiceFormTitle');
+    wrapper.innerHTML = invoiceEditorShellHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, scopedClientId: clientId, scopedProjectId, scopedQuoteId, clientLabel, settings, formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote'});
     root.appendChild(wrapper);
+    wrapper._quoteReturnFocus = returnFocus;
+    [...root.children].filter(child => child !== wrapper).forEach(child => { child.inert = true; });
+    setInvoiceEditorPageState(true);
+    wrapper._invoiceEscapeHandler = event => { if (event.key === 'Escape') closeClientQuickModal(); };
+    document.addEventListener('keydown', wrapper._invoiceEscapeHandler);
     await wireInvoiceInternalForm(wrapper, {formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote', editing, scopedClientId: clientId, onSave: async payload => { try { if (isEdit) await api(`/api/invoices/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/invoices', {method:'POST', body: JSON.stringify(payload)}); await closeAfter('invoices', isEdit ? 'Invoice updated' : 'Invoice saved'); } catch(err) { alert(err.message); } }});
   }
 
@@ -2480,6 +2683,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
   }
 
   attachPrintActions(wrapper);
+  attachQuoteInvoiceActions(wrapper);
   wrapper.querySelector('.modal-close')?.addEventListener('click', closeClientQuickModal);
   wrapper.querySelector('.quick-cancel')?.addEventListener('click', closeClientQuickModal);
   wrapper.addEventListener('click', e => { if (e.target === wrapper) closeClientQuickModal(); });
