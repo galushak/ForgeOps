@@ -1,4 +1,4 @@
-const CACHE_NAME = 'forgeops-phase-4-invoices-v2';
+const CACHE_NAME = 'forgeops-release-candidate-1';
 const APP_SHELL = [
   '/',
   '/static/styles.css?v=0.8.12-phase2',
@@ -6,7 +6,7 @@ const APP_SHELL = [
   '/static/phase2.css?v=0.8.12-phase2-polish',
   '/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2',
   '/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix',
-  '/static/js/app.js?v=0.8.12-phase4-invoices-mobile-fix',
+  '/static/js/app.js?v=0.8.12-release-candidate-1',
   '/static/manifest.webmanifest',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'

@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
 from app.api.deps import SessionDep, get_current_user
+from app.core.rates import normalize_percentage_rate
 from app.core.security import utc_now
 from app.models import AppSetting, Client, Invoice, InvoiceLineItem, InvoiceLineItemKind, InvoiceStatus, LaborEntry, Project, Quote
 from app.schemas import InvoiceCreate, InvoiceLineItemRead, InvoiceRead, InvoiceUpdate
@@ -67,8 +68,8 @@ def _sales_tax_rate(session: Session) -> Decimal:
     setting = session.get(AppSetting, "sales_tax_rate")
     raw = setting.value if setting is not None else "0.07"
     try:
-        return Decimal(str(raw))
-    except (InvalidOperation, ValueError):
+        return normalize_percentage_rate(raw)
+    except ValueError:
         return Decimal("0.07")
 
 

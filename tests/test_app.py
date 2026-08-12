@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
@@ -63,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "forgeops-phase-4-invoices-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-release-candidate-1" in html
+    assert "forgeops-release-candidate-1" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -98,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-phase4-invoices-mobile-fix" in html
+    assert "/static/js/app.js?v=0.8.12-release-candidate-1" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -177,6 +178,12 @@ def test_frontend_phase_3_quote_workflow_characterization():
     ]:
         assert marker in phase3_css
 
+    assert "const tax = (equipmentSubtotal + shipping + tariff) * taxRate;" in javascript
+    assert "const markup = (equipmentSubtotal + shipping + tariff + tax) * (markupPercent / 100);" in javascript
+    assert "const subtotal = equipmentSubtotal + shipping + tariff + markup + laborTotal;" in javascript
+    assert "Project Coordination & Logistics', description:" in javascript
+    assert "taxable:false" in javascript
+
 
 def test_frontend_phase_4_invoice_workflow_characterization():
     static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
@@ -186,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "forgeops-phase-4-invoices-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-release-candidate-1" in html
+    assert "forgeops-release-candidate-1" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
 
     for marker in [
@@ -440,6 +447,216 @@ def test_settings_and_backup_validate_restore(authed):
     )
     assert restored.status_code == 200
     assert restored.json()["pre_restore_backup"].startswith("fst-backup-")
+
+
+def test_full_backup_restore_preserves_business_graph_settings_and_startup(authed):
+    assert authed.put(
+        "/api/admin/settings",
+        json={"company_name": "Backup Graph LLC", "sales_tax_rate": "7"},
+    ).status_code == 200
+    client_id = authed.post("/api/clients", json={"name": "Backup Graph Client"}).json()["id"]
+    project_id = authed.post(
+        "/api/projects",
+        json={"client_id": client_id, "name": "Backup Graph Project", "status": "in_progress"},
+    ).json()["id"]
+    quote_id = authed.post(
+        "/api/quotes",
+        json={
+            "quote_number": "FS-QUOTE-BACKUP-GRAPH",
+            "client_id": client_id,
+            "project_id": project_id,
+            "status": "approved",
+            "title": "Backup Graph Quote",
+            "quote_date": "2026-08-12",
+            "tax_amount": "7.00",
+        },
+    ).json()["id"]
+    quote_lines = authed.put(
+        f"/api/quotes/{quote_id}/line-items",
+        json={
+            "items": [
+                {
+                    "quote_id": quote_id,
+                    "kind": "equipment",
+                    "name": "Backup appliance",
+                    "description": "Relationship validation",
+                    "quantity": "1.00",
+                    "unit_price": "100.00",
+                    "line_total": "100.00",
+                    "taxable": True,
+                }
+            ]
+        },
+    )
+    assert quote_lines.status_code == 200
+    labor_id = authed.post(
+        "/api/labor",
+        json={
+            "work_date": "2026-08-12",
+            "client_id": client_id,
+            "project_id": project_id,
+            "status": "completed",
+            "service_type": "Backup validation",
+            "hours": "2.00",
+            "hourly_rate": "100.00",
+        },
+    ).json()["id"]
+    invoice = authed.post(
+        "/api/invoices",
+        json={
+            "invoice_number": "FS-INV-BACKUP-GRAPH",
+            "client_id": client_id,
+            "project_id": project_id,
+            "quote_id": quote_id,
+            "status": "sent",
+            "title": "Backup Graph Invoice",
+            "invoice_date": "2026-08-12",
+            "labor_entry_ids": [labor_id],
+            "line_items": [
+                {
+                    "kind": "material",
+                    "description": "Backup media",
+                    "quantity": "1.00",
+                    "unit_price": "50.00",
+                    "line_total": "50.00",
+                    "taxable": True,
+                },
+                {
+                    "kind": "payment",
+                    "description": "Partial payment",
+                    "quantity": "1.00",
+                    "unit_price": "25.00",
+                    "line_total": "25.00",
+                    "taxable": False,
+                },
+            ],
+        },
+    )
+    assert invoice.status_code == 201
+    invoice_id = invoice.json()["id"]
+    ledger_id = authed.post(
+        "/api/ledger",
+        json={
+            "entry_date": "2026-08-12",
+            "kind": "income",
+            "business_type": "client",
+            "category": "Services",
+            "amount": "25.00",
+            "client_id": client_id,
+            "project_id": project_id,
+            "quote_id": quote_id,
+            "invoice_id": invoice_id,
+            "description": "Partial payment received",
+        },
+    )
+    assert ledger_id.status_code == 201
+
+    backup = authed.get("/api/admin/backups/download")
+    assert backup.status_code == 200
+    assert authed.patch(f"/api/clients/{client_id}", json={"name": "Mutated Client"}).status_code == 200
+    assert authed.put("/api/admin/settings", json={"company_name": "Mutated LLC"}).status_code == 200
+
+    restored = authed.post(
+        "/api/admin/backups/restore",
+        files={"file": ("business-graph.zip", backup.content, "application/zip")},
+    )
+    assert restored.status_code == 200
+    counts = restored.json()["restored_counts"]
+    assert counts == {
+        "clients": 1,
+        "projects": 1,
+        "quotes": 1,
+        "quote_line_items": 1,
+        "invoices": 1,
+        "labor_entries": 1,
+        "ledger_entries": 1,
+        "receipts": 0,
+    }
+
+    settings = authed.get("/api/admin/settings").json()["settings"]
+    assert settings["company_name"] == "Backup Graph LLC"
+    assert settings["sales_tax_rate"] == "0.07"
+    restored_client = authed.get(f"/api/clients/{client_id}").json()
+    restored_project = authed.get("/api/projects", params={"client_id": client_id}).json()["items"][0]
+    restored_quote = authed.get("/api/quotes", params={"project_id": project_id}).json()["items"][0]
+    restored_quote_lines = authed.get(f"/api/quotes/{quote_id}/line-items").json()["items"]
+    restored_invoice = authed.get("/api/invoices", params={"project_id": project_id}).json()["items"][0]
+    restored_labor = authed.get("/api/labor", params={"project_id": project_id}).json()["items"][0]
+    restored_ledger = authed.get("/api/ledger", params={"project_id": project_id}).json()["items"][0]
+    assert restored_client["name"] == "Backup Graph Client"
+    assert restored_project["client_id"] == client_id
+    assert restored_quote["project_id"] == project_id
+    assert restored_quote_lines[0]["quote_id"] == quote_id
+    assert restored_invoice["client_id"] == client_id
+    assert restored_invoice["project_id"] == project_id
+    assert restored_invoice["quote_id"] == quote_id
+    assert len(restored_invoice["line_items"]) == 2
+    assert restored_labor["invoice_id"] == invoice_id
+    assert restored_labor["is_invoiced"] is True
+    assert restored_ledger["client_id"] == client_id
+    assert restored_ledger["project_id"] == project_id
+    assert restored_ledger["quote_id"] == quote_id
+    assert restored_ledger["invoice_id"] == invoice_id
+
+    from app.db import init_db
+
+    init_db()
+    assert authed.get(f"/api/clients/{client_id}").json()["name"] == "Backup Graph Client"
+    assert authed.get("/api/admin/settings").json()["settings"]["company_name"] == "Backup Graph LLC"
+
+
+def test_sales_tax_setting_normalizes_percent_and_decimal_inputs(authed):
+    normalized = authed.put("/api/admin/settings", json={"sales_tax_rate": "7"})
+    assert normalized.status_code == 200
+    assert authed.get("/api/admin/settings").json()["settings"]["sales_tax_rate"] == "0.07"
+
+    client_id = authed.post("/api/clients", json={"name": "Tax Rate Client"}).json()["id"]
+    invoice_payload = {
+        "invoice_number": "FS-INV-TAX-SAFE-001",
+        "client_id": client_id,
+        "title": "Tax Rate Safety",
+        "invoice_date": "2026-08-12",
+        "line_items": [
+            {
+                "kind": "material",
+                "description": "Taxable material",
+                "quantity": "1.00",
+                "unit_price": "100.00",
+                "line_total": "100.00",
+                "taxable": True,
+            }
+        ],
+    }
+    invoice = authed.post("/api/invoices", json=invoice_payload)
+    assert invoice.status_code == 201
+    assert invoice.json()["tax_amount"] == "7.00"
+    assert invoice.json()["total_amount"] == "107.00"
+
+    decimal_input = authed.put("/api/admin/settings", json={"sales_tax_rate": "0.07"})
+    assert decimal_input.status_code == 200
+    assert authed.get("/api/admin/settings").json()["settings"]["sales_tax_rate"] == "0.07"
+
+    invalid = authed.put("/api/admin/settings", json={"sales_tax_rate": "700"})
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "Enter a rate from 0 to 100, using either 7 or 0.07 for 7%"
+    assert authed.get("/api/admin/settings").json()["settings"]["sales_tax_rate"] == "0.07"
+
+    from sqlmodel import Session
+
+    from app.db import engine
+    from app.models import AppSetting
+
+    with Session(engine) as session:
+        stored_rate = session.get(AppSetting, "sales_tax_rate")
+        stored_rate.value = "7"
+        session.add(stored_rate)
+        session.commit()
+    legacy_invoice = authed.post(
+        "/api/invoices",
+        json={**invoice_payload, "invoice_number": "FS-INV-TAX-SAFE-002"},
+    )
+    assert legacy_invoice.status_code == 201
+    assert legacy_invoice.json()["tax_amount"] == "7.00"
 
 
 def test_login_failure_and_logout(client, authed):
@@ -876,8 +1093,15 @@ def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
     assert cards["estimated_sales_tax"] == "1.00"
     assert cards["estimated_income_tax"] == "35.00"
     assert cards["estimated_tax_owed"] == "36.00"
-    assert cards["ledger_net_profit"] == "84.00"
-    assert cards["owner_pay"] == "84.00"
+    assert cards["ledger_net_profit"] == "114.00"
+    assert cards["owner_pay"] == "114.00"
+    assert (
+        Decimal(cards["ledger_net_profit"])
+        + Decimal(cards["estimated_sales_tax"])
+        + Decimal(cards["estimated_income_tax"])
+        == Decimal(cards["net_income"])
+    )
+    assert Decimal(cards["net_income"]) + Decimal(cards["ledger_expenses"]) == Decimal(cards["ledger_revenue"])
 
     tax_rows = [row for row in data["account_type_breakdown"] if row["account_type"] == "Tax Payments"]
     assert {row["category"]: row["total"] for row in tax_rows} == {
@@ -891,3 +1115,33 @@ def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
     )
     assert reversed_range.status_code == 400
     assert reversed_range.json()["detail"] == "End date must be on or after start date"
+
+
+def test_money_flow_report_uses_configured_income_tax_rate(authed):
+    saved = authed.put("/api/admin/settings", json={"income_tax_reserve_rate": "0.25"})
+    assert saved.status_code == 200
+    income = authed.post(
+        "/api/ledger",
+        json={
+            "entry_date": "2026-08-12",
+            "kind": "income",
+            "business_type": "admin",
+            "category": "Services",
+            "amount": "100.00",
+        },
+    )
+    assert income.status_code == 201
+    cards = authed.get(
+        "/api/reports/money-flow",
+        params={"start_date": "2026-01-01", "end_date": "2026-12-31"},
+    ).json()["cards"]
+    assert cards["net_income"] == "100.00"
+    assert cards["gross_sales_tax_estimate"] == "7.00"
+    assert cards["gross_income_tax_estimate"] == "25.00"
+    assert cards["ledger_net_profit"] == "68.00"
+    assert (
+        Decimal(cards["ledger_net_profit"])
+        + Decimal(cards["estimated_sales_tax"])
+        + Decimal(cards["estimated_income_tax"])
+        == Decimal(cards["net_income"])
+    )

@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 
 from app.api.deps import SessionDep, get_current_user
+from app.core.rates import normalize_percentage_rate
 from app.models import (
+    AppSetting,
     Client,
     Invoice,
     InvoiceStatus,
@@ -38,6 +40,14 @@ def _name_map(items: list[Client] | list[Project]) -> dict[int, str]:
 
 def _is_tax_payment(entry: LedgerEntry) -> bool:
     return entry.kind == LedgerKind.expense and (entry.category or "") in TAX_PAYMENT_CATEGORIES
+
+
+def _configured_rate(session: SessionDep, key: str, default: Decimal) -> Decimal:
+    setting = session.get(AppSetting, key)
+    try:
+        return normalize_percentage_rate(setting.value if setting is not None else default)
+    except ValueError:
+        return default
 
 
 @router.get("/money-flow", response_model=dict)
@@ -90,15 +100,12 @@ def money_flow_report(
     income_tax_paid = sum((abs(e.amount) for e in ledger_entries if e.kind == LedgerKind.expense and (e.category or "") in INCOME_TAX_PAYMENT_CATEGORIES), Decimal("0.00"))
     total_tax_paid = sales_tax_paid + income_tax_paid
     gross_sales_tax_estimate = (revenue * Decimal("0.07")).quantize(Decimal("0.01"))
-    gross_income_tax_estimate = (max(net_income, Decimal("0.00")) * Decimal("0.30")).quantize(Decimal("0.01"))
+    income_tax_rate = _configured_rate(session, "income_tax_reserve_rate", Decimal("0.30"))
+    gross_income_tax_estimate = (max(net_income, Decimal("0.00")) * income_tax_rate).quantize(Decimal("0.01"))
     sales_tax_reserve_remaining = max(gross_sales_tax_estimate - sales_tax_paid, Decimal("0.00"))
     income_tax_reserve_remaining = max(gross_income_tax_estimate - income_tax_paid, Decimal("0.00"))
     estimated_tax_owed = sales_tax_reserve_remaining + income_tax_reserve_remaining
-    net_profit = (
-        net_income
-        - max(gross_sales_tax_estimate, sales_tax_paid)
-        - max(gross_income_tax_estimate, income_tax_paid)
-    ).quantize(Decimal("0.01"))
+    net_profit = (net_income - sales_tax_reserve_remaining - income_tax_reserve_remaining).quantize(Decimal("0.01"))
     owner_pay = net_profit
 
     invoice_total = sum((i.total_amount for i in invoices if i.status != InvoiceStatus.void), Decimal("0.00"))

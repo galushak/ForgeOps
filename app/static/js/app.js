@@ -2840,7 +2840,7 @@ async function renderReports() {
       <div class="card"><span>Income Tax Paid</span><strong>${money(c.income_tax_paid)}</strong></div>
       <div class="card"><span>Tax Reserve Total</span><strong>${money(c.estimated_tax_owed)}</strong></div>
       <div class="card"><span>Total Tax Paid</span><strong>${money(c.total_tax_paid)}</strong></div>
-    </div><p class="muted">Reserve cards show the remaining tax buckets after payments. Payments only reduce net profit beyond the estimate when they exceed the reserved amount. Invoice totals are shown separately for receivables tracking.</p></div>
+    </div><p class="muted">Reserve cards show the remaining tax buckets after payments. Net profit plus the remaining Sales Tax and Income Tax reserves equals net income. Invoice totals are shown separately for receivables tracking.</p></div>
     <div class="panel"><h2>Money Flow by Account Type & Category</h2><p class="muted">Uses the same selected report range and breaks ledger activity into the QuickBooks-style account type/category totals.</p>${compactTable(['Account Type','Category','Total'], (data.account_type_breakdown || []).map(r => [escapeHtml(r.account_type), escapeHtml(r.category), money(r.total)]), 'No ledger activity for this period.', 'reports-table')}</div>
     <div class="panel"><h2>By Category</h2>${compactTable(['Category','Revenue','Expenses','Net'], (data.by_category || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]), 'No ledger activity for this period.', 'reports-table')}</div>
     <div class="panel"><h2>By Client</h2>${compactTable(['Client','Revenue','Expenses','Net'], (data.by_client || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]), 'No client activity for this period.', 'reports-table')}</div>
@@ -2867,7 +2867,7 @@ async function renderAdmin() {
     <label>Company Name<input name="company_name" value="${escapeHtml(settings.company_name || 'Forged Systems LLC')}"></label>
     <label>Default Labor Rate<input name="default_labor_rate" type="number" step="0.01" min="0" value="${escapeHtml(settings.default_labor_rate || '100.00')}"></label>
     <label>Quote Markup %<input name="quote_markup_percent" type="number" step="0.01" min="0" value="${escapeHtml(settings.quote_markup_percent || '10')}"></label>
-    <label>Sales Tax Rate<input name="sales_tax_rate" value="${escapeHtml(settings.sales_tax_rate || '0.07')}" placeholder="0.07 for 7%"></label>
+    <label>Sales Tax Rate<input name="sales_tax_rate" type="number" min="0" max="100" step="0.01" value="${escapeHtml(settings.sales_tax_rate || '0.07')}" placeholder="7 or 0.07"><small>Enter 7 or 0.07 for 7%.</small></label>
     <label class="full">Default Quote Terms<textarea name="default_quote_terms">${escapeHtml(quoteTermsValue(null, settings.default_quote_terms))}</textarea></label>
     <label class="full">Default Invoice Terms<textarea name="default_invoice_terms">${escapeHtml(invoiceTermsValue(null, settings.default_invoice_terms))}</textarea></label>
     <div class="form-actions"><button class="primary" type="submit">Save Business Settings</button></div>
