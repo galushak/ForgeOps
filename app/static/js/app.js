@@ -1,4 +1,4 @@
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -230,28 +230,28 @@ function quoteEquipmentRowHtml(item={}) {
   const qty = item.quantity ?? '1.00';
   const price = item.unit_price ?? '0.00';
   const total = item.line_total ?? (Number(qty || 0) * Number(price || 0)).toFixed(2);
-  return `<div class="quote-sheet-row quote-line-row" data-kind="equipment">
-    <input name="name" required value="${escapeHtml(item.name || '')}" placeholder="Item">
-    <input name="description" value="${escapeHtml(item.description || '')}" placeholder="Description">
-    <input name="quantity" type="number" min="0" step="0.01" value="${escapeHtml(qty)}" aria-label="Quantity">
-    <input name="unit_price" type="number" min="0" step="0.01" value="${escapeHtml(price)}" aria-label="Unit price">
-    <input name="line_total" type="number" min="0" step="0.01" value="${escapeHtml(total)}" aria-label="Line total">
-    <label class="tiny-check"><input name="taxable" type="checkbox" ${item.taxable === false ? '' : 'checked'}> Tax</label>
-    <button class="mini danger-mini quote-remove-line" type="button">Remove</button>
-  </div>`;
+  return `<article class="quote-sheet-row quote-line-row quote-line-card" data-kind="equipment">
+    <label class="quote-line-field quote-line-name"><span>Item</span><input name="name" required value="${escapeHtml(item.name || '')}" placeholder="Item or material"></label>
+    <label class="quote-line-field quote-line-description"><span>Description</span><input name="description" value="${escapeHtml(item.description || '')}" placeholder="Description"></label>
+    <label class="quote-line-field"><span>Quantity</span><input name="quantity" type="number" min="0" step="0.01" value="${escapeHtml(qty)}" inputmode="decimal"></label>
+    <label class="quote-line-field"><span>Unit price</span><input name="unit_price" type="number" min="0" step="0.01" value="${escapeHtml(price)}" inputmode="decimal"></label>
+    <label class="quote-line-field quote-line-total"><span>Line total</span><input name="line_total" type="number" min="0" step="0.01" value="${escapeHtml(total)}" readonly aria-readonly="true"></label>
+    <label class="quote-taxable-control"><input name="taxable" type="checkbox" ${item.taxable === false ? '' : 'checked'}><span>Taxable</span></label>
+    <button class="mini danger-mini quote-remove-line" type="button" aria-label="Remove equipment or material row">Remove</button>
+  </article>`;
 }
 function quoteLaborRowHtml(item={}) {
   const hours = item.quantity ?? '1.00';
   const rate = item.unit_price ?? '100.00';
   const total = item.line_total ?? (Number(hours || 0) * Number(rate || 0)).toFixed(2);
-  return `<div class="quote-sheet-row quote-line-row labor-sheet-row" data-kind="labor">
-    <input name="name" required value="${escapeHtml(item.name || '')}" placeholder="Service">
-    <input name="description" value="${escapeHtml(item.description || '')}" placeholder="Description">
-    <input name="quantity" type="number" min="0" step="0.01" value="${escapeHtml(hours)}" aria-label="Hours">
-    <input name="unit_price" type="number" min="0" step="0.01" value="${escapeHtml(rate)}" aria-label="Rate">
-    <input name="line_total" type="number" min="0" step="0.01" value="${escapeHtml(total)}" aria-label="Line total">
-    <button class="mini danger-mini quote-remove-line" type="button">Remove</button>
-  </div>`;
+  return `<article class="quote-sheet-row quote-line-row quote-line-card labor-sheet-row" data-kind="labor">
+    <label class="quote-line-field quote-line-name"><span>Service</span><input name="name" required value="${escapeHtml(item.name || '')}" placeholder="Service"></label>
+    <label class="quote-line-field quote-line-description"><span>Description</span><input name="description" value="${escapeHtml(item.description || '')}" placeholder="Description"></label>
+    <label class="quote-line-field"><span>Hours</span><input name="quantity" type="number" min="0" step="0.01" value="${escapeHtml(hours)}" inputmode="decimal"></label>
+    <label class="quote-line-field"><span>Rate</span><input name="unit_price" type="number" min="0" step="0.01" value="${escapeHtml(rate)}" inputmode="decimal"></label>
+    <label class="quote-line-field quote-line-total"><span>Line total</span><input name="line_total" type="number" min="0" step="0.01" value="${escapeHtml(total)}" readonly aria-readonly="true"></label>
+    <button class="mini danger-mini quote-remove-line" type="button" aria-label="Remove labor row">Remove</button>
+  </article>`;
 }
 function quoteLineEditorHtml(items=[], settings={}) {
   const markupPercent = Number(settings.quote_markup_percent ?? '10');
@@ -262,40 +262,43 @@ function quoteLineEditorHtml(items=[], settings={}) {
   const shipping = feeByName(items, 'shipping')?.line_total || '0.00';
   const tariff = feeByName(items, 'tariff')?.line_total || '0.00';
   const markup = feeByName(items, 'coordination')?.line_total || '0.00';
-  return `<div class="quote-builder quote-internal-sheet full" id="quoteLineEditor" data-markup-percent="${markupPercent}" data-sales-tax-rate="${salesTaxRate}">
-    <div class="quote-sheet-note">Build the quote here just like the spreadsheet: equipment first, then shipping/tariff/tax/markup, then labor estimate and terms.</div>
-
-    <section class="quote-sheet-section">
-      <div class="quote-section-title">Equipment & Materials</div>
+  return `<div class="quote-builder quote-editor-sections full" id="quoteLineEditor" data-markup-percent="${markupPercent}" data-sales-tax-rate="${salesTaxRate}">
+    <section class="quote-sheet-section quote-editor-section" aria-labelledby="quoteEquipmentHeading">
+      <div class="quote-editor-section-head"><span>2</span><div><h3 id="quoteEquipmentHeading">Equipment & Materials</h3><p>Add the hardware, materials, and quantities included in this estimate.</p></div></div>
       <div class="quote-sheet-head equipment-head"><span>Item</span><span>Description</span><span>Qty</span><span>Unit Price</span><span>Line Total</span><span>Tax</span><span></span></div>
       <div id="quoteEquipmentRows">${(equipment.length ? equipment : [{kind:'equipment', name:'', description:'', quantity:'1.00', unit_price:'0.00', line_total:'0.00', taxable:true}]).map(quoteEquipmentRowHtml).join('')}</div>
-      <div class="quote-toolbar sheet-toolbar"><button class="mini" type="button" id="addEquipmentLine">+ Equipment/Material Row</button></div>
-      <div class="quote-sheet-totals">
-        <label>Equipment Subtotal<input id="equipmentSubtotalDisplay" readonly value="$0.00"></label>
+      <div class="quote-toolbar sheet-toolbar"><button class="mini quote-add-line" type="button" id="addEquipmentLine">+ Add Equipment or Material</button></div>
+    </section>
+
+    <section class="quote-sheet-section quote-editor-section quote-fees-section" aria-labelledby="quoteFeesHeading">
+      <div class="quote-editor-section-head"><span>3</span><div><h3 id="quoteFeesHeading">Shipping, Tariff & Markup</h3><p>Use the optional cost fields that apply to this quote.</p></div></div>
+      <div class="quote-fee-grid">
         <label>Shipping & Freight<input id="quoteShippingInput" type="number" min="0" step="0.01" value="${escapeHtml(shipping)}"></label>
         <label>Tariff Surcharge<input id="quoteTariffInput" type="number" min="0" step="0.01" value="${escapeHtml(tariff)}"></label>
-        <label>Sales Tax<input id="quoteTaxDisplay" readonly value="$0.00"></label>
         <label>Markup / Project Coordination %<input id="quoteMarkupPercentInput" type="number" min="0" step="0.01" value="${escapeHtml(markupPercent)}"></label>
-        <label>Project Coordination & Logistics<input id="quoteMarkupDisplay" readonly value="${escapeHtml(Number(markup || 0).toFixed(2))}"></label>
-        <label class="strong-total">Total Equipment Cost<input id="quoteEquipmentTotalDisplay" readonly value="$0.00"></label>
+        <label>Project Coordination & Logistics<input id="quoteMarkupDisplay" readonly aria-readonly="true" value="${escapeHtml(Number(markup || 0).toFixed(2))}"></label>
       </div>
     </section>
 
-    <section class="quote-sheet-section">
-      <div class="quote-section-title">Labor – Installation & Configuration (Estimate)</div>
+    <section class="quote-sheet-section quote-editor-section" aria-labelledby="quoteLaborHeading">
+      <div class="quote-editor-section-head"><span>4</span><div><h3 id="quoteLaborHeading">Estimated Labor</h3><p>Estimate installation, configuration, and other service work.</p></div></div>
       <div class="quote-sheet-head labor-head"><span>Service</span><span>Description</span><span>Hours</span><span>Rate</span><span>Line Total</span><span></span></div>
       <div id="quoteLaborRows">${(labor.length ? labor : [{kind:'labor', name:'', description:'', quantity:'0.00', unit_price:laborRate, line_total:'0.00', taxable:false}]).map(quoteLaborRowHtml).join('')}</div>
-      <div class="quote-toolbar sheet-toolbar"><button class="mini" type="button" id="addLaborLine">+ Labor Row</button></div>
-      <div class="quote-sheet-totals labor-summary">
-        <label>Estimated Labor Total<input id="quoteLaborTotalDisplay" readonly value="$0.00"></label>
-        <label class="strong-total">Estimated Grand Total<input id="quoteGrandTotalDisplay" readonly value="$0.00"></label>
-      </div>
+      <div class="quote-toolbar sheet-toolbar"><button class="mini quote-add-line" type="button" id="addLaborLine">+ Add Labor Row</button></div>
     </section>
 
-    <section class="quote-sheet-section quote-approval-preview">
-      <div class="quote-section-title">Client Approval & Authorization</div>
-      <p class="quote-sheet-note">By signing below, the client acknowledges and agrees to the scope, pricing, and payment terms outlined in this quote.</p>
-      <div class="signature-grid"><span>Client Name: ________________________________</span><span>Signature: ________________________________</span><span>Date: ____________________</span></div>
+    <section class="quote-sheet-section quote-editor-section quote-summary-section" aria-labelledby="quoteSummaryHeading">
+      <div class="quote-editor-section-head"><span>5</span><div><h3 id="quoteSummaryHeading">Quote Summary</h3><p>Live totals from the existing Quote calculation.</p></div></div>
+      <div class="quote-summary-grid" aria-live="polite">
+        <div><span>Equipment subtotal</span><input id="equipmentSubtotalDisplay" aria-label="Equipment subtotal" readonly aria-readonly="true" value="$0.00"></div>
+        <div data-quote-summary-row="shipping"><span>Shipping & Freight</span><output data-quote-summary="shipping">$0.00</output></div>
+        <div data-quote-summary-row="tariff"><span>Tariff Surcharge</span><output data-quote-summary="tariff">$0.00</output></div>
+        <div><span>Sales Tax</span><input id="quoteTaxDisplay" aria-label="Sales Tax" readonly aria-readonly="true" value="$0.00"></div>
+        <div><span>Project Coordination & Logistics</span><output data-quote-summary="markup">$0.00</output></div>
+        <div class="quote-summary-equipment"><span>Total Equipment Cost</span><input id="quoteEquipmentTotalDisplay" aria-label="Total Equipment Cost" readonly aria-readonly="true" value="$0.00"></div>
+        <div><span>Estimated Labor</span><input id="quoteLaborTotalDisplay" aria-label="Estimated Labor" readonly aria-readonly="true" value="$0.00"></div>
+        <div class="quote-summary-grand"><span>Estimated Grand Total</span><input id="quoteGrandTotalDisplay" aria-label="Estimated Grand Total" readonly aria-readonly="true" value="$0.00"></div>
+      </div>
     </section>
   </div>`;
 }
@@ -367,6 +370,13 @@ function recalcQuoteEditor(container) {
   setTextInput('#quoteEquipmentTotalDisplay', totals.equipmentTotal);
   setTextInput('#quoteLaborTotalDisplay', totals.laborTotal);
   setTextInput('#quoteGrandTotalDisplay', totals.total);
+  const summaryValues = { shipping: totals.shipping, tariff: totals.tariff, markup: totals.markup };
+  Object.entries(summaryValues).forEach(([name, value]) => {
+    const output = editor.querySelector(`[data-quote-summary="${name}"]`);
+    if (output) output.textContent = money(value);
+    editor.querySelector(`[data-quote-summary-row="${name}"]`)?.classList.toggle('quote-zero-value', Number(value || 0) === 0);
+  });
+  container.querySelectorAll('[data-quote-sticky-total]').forEach(output => { output.textContent = money(totals.total); });
   ['subtotal','tax_amount','total_amount'].forEach((name) => {
     const input = container.querySelector(`[name="${name}"]`);
     if (input) {
@@ -381,13 +391,89 @@ function wireQuoteLineEditor(container) {
   if (!editor) return;
   const equipmentRows = editor.querySelector('#quoteEquipmentRows');
   const laborRows = editor.querySelector('#quoteLaborRows');
-  const addEquipment = () => { equipmentRows.insertAdjacentHTML('beforeend', quoteEquipmentRowHtml({kind:'equipment', quantity:'1.00', unit_price:'0.00', line_total:'0.00', taxable:true})); wireQuoteLineEditor(container); recalcQuoteEditor(container); };
-  const addLabor = () => { const rate = container.querySelector('[name="hourly_rate"]')?.value || '100.00'; laborRows.insertAdjacentHTML('beforeend', quoteLaborRowHtml({kind:'labor', quantity:'1.00', unit_price:rate, line_total:rate, taxable:false})); wireQuoteLineEditor(container); recalcQuoteEditor(container); };
-  editor.querySelector('#addEquipmentLine')?.addEventListener('click', addEquipment, { once:true });
-  editor.querySelector('#addLaborLine')?.addEventListener('click', addLabor, { once:true });
+  const addEquipment = () => {
+    equipmentRows.insertAdjacentHTML('beforeend', quoteEquipmentRowHtml({kind:'equipment', quantity:'1.00', unit_price:'0.00', line_total:'0.00', taxable:true}));
+    wireQuoteLineEditor(container);
+    equipmentRows.lastElementChild?.querySelector('[name="name"]')?.focus();
+  };
+  const addLabor = () => {
+    const rate = container.querySelector('[name="hourly_rate"]')?.value || '100.00';
+    laborRows.insertAdjacentHTML('beforeend', quoteLaborRowHtml({kind:'labor', quantity:'1.00', unit_price:rate, line_total:rate, taxable:false}));
+    wireQuoteLineEditor(container);
+    laborRows.lastElementChild?.querySelector('[name="name"]')?.focus();
+  };
+  const equipmentButton = editor.querySelector('#addEquipmentLine');
+  const laborButton = editor.querySelector('#addLaborLine');
+  if (equipmentButton) equipmentButton.onclick = addEquipment;
+  if (laborButton) laborButton.onclick = addLabor;
   editor.querySelectorAll('input,select,textarea').forEach(el => el.oninput = () => recalcQuoteEditor(container));
   editor.querySelectorAll('.quote-remove-line').forEach(btn => btn.onclick = () => { btn.closest('.quote-line-row')?.remove(); recalcQuoteEditor(container); });
   recalcQuoteEditor(container);
+}
+
+function quoteEditorFormHtml({editing=null, generatedQuoteNumber='', quoteNumberAttrs='', settings={}, existingItems=[], formId='quoteForm', clientSelectId='quoteClient', projectSelectId='quoteProject', scopedClientId=null, scopedProjectId='', clientLabel='', closeButtonId='', cancelButtonId='', scoped=false}) {
+  const isEdit = Boolean(editing);
+  const titleId = `${formId}Title`;
+  const closeId = closeButtonId ? ` id="${closeButtonId}"` : '';
+  const cancelIdAttr = cancelButtonId ? ` id="${cancelButtonId}"` : '';
+  const cancelClass = scoped ? ' quick-cancel' : '';
+  const selectedClientId = scopedClientId || editing?.client_id || '';
+  const selectedProjectId = scopedProjectId || editing?.project_id || '';
+  const clientField = scopedClientId
+    ? `<input type="hidden" name="client_id" value="${Number(scopedClientId)}"><div class="quote-context-readonly"><span>Client</span><strong>${clientLabel}</strong></div>`
+    : `<label>Client<select name="client_id" id="${clientSelectId}" required>${clientOptions(editing?.client_id)}</select></label>`;
+  return `<div class="modal-card wide-modal quote-editor-shell"><header class="modal-header quote-editor-header"><div><p class="quote-editor-eyebrow">Quote workflow</p><h2 id="${titleId}">${isEdit ? 'Edit Quote' : 'Add Quote'}</h2><p>${isEdit ? 'Review the estimate, adjust the work, and update the quote.' : 'Build a clear estimate for a client or project.'}</p></div><button class="ghost modal-close"${closeId} type="button" aria-label="Close quote form">×</button></header>
+    <form id="${formId}" class="form-grid quote-editor-form">
+      <section class="quote-sheet-section quote-editor-section quote-details-section full" aria-labelledby="${formId}DetailsHeading">
+        <div class="quote-editor-section-head"><span>1</span><div><h3 id="${formId}DetailsHeading">Quote Details</h3><p>Choose the client and project, then name and date the quote.</p></div></div>
+        <div class="quote-details-grid">
+          ${clientField}
+          <label>Project or site<select name="project_id" id="${projectSelectId}">${projectOptions(selectedProjectId, selectedClientId)}</select></label>
+          <label class="quote-title-field">Quote title<input name="title" required value="${escapeHtml(editing?.title)}" placeholder="Network upgrade, camera installation, managed services..."></label>
+          <label>Quote #<input name="quote_number" required${quoteNumberAttrs} value="${escapeHtml(generatedQuoteNumber)}"></label>
+          <div class="quote-context-readonly"><span>Prepared by</span><strong>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</strong></div>
+          <label>Status<select name="status"><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label>
+          <label>Issued date<input name="quote_date" type="date" required value="${escapeHtml(editing?.quote_date || todayIso())}"></label>
+          <label>Valid through<input name="valid_until" type="date" value="${escapeHtml(editing?.valid_until)}"></label>
+        </div>
+      </section>
+      <input name="subtotal" type="hidden" value="${escapeHtml(editing?.subtotal || '0.00')}"><input name="tax_amount" type="hidden" value="${escapeHtml(editing?.tax_amount || '0.00')}"><input name="total_amount" type="hidden" value="${escapeHtml(editing?.total_amount || '0.00')}">
+      ${quoteLineEditorHtml(existingItems, settings)}
+      <section class="quote-sheet-section quote-editor-section quote-terms-section full" aria-labelledby="${formId}TermsHeading">
+        <div class="quote-editor-section-head"><span>6</span><div><h3 id="${formId}TermsHeading">Payment Terms & Conditions</h3><p>Client-facing terms included with the quote.</p></div></div>
+        <label>Terms<textarea name="terms" rows="7">${escapeHtml(quoteTermsValue(editing?.terms, settings.default_quote_terms))}</textarea></label>
+      </section>
+      <section class="quote-sheet-section quote-editor-section quote-notes-section full" aria-labelledby="${formId}NotesHeading">
+        <div class="quote-editor-section-head"><span>7</span><div><h3 id="${formId}NotesHeading">Internal Notes</h3><p>Visible inside ForgeOps only; these notes are not printed on the Quote.</p></div></div>
+        <label>Notes<textarea name="notes" rows="4" placeholder="Internal context, reminders, or follow-up notes">${escapeHtml(editing?.notes)}</textarea></label>
+      </section>
+      <footer class="form-actions quote-editor-actions"><div class="quote-editor-footer-total"><span>Grand total</span><strong data-quote-sticky-total>$0.00</strong></div><div class="quote-editor-action-buttons"><button class="ghost${cancelClass}"${cancelIdAttr} type="button">Cancel</button>${isEdit ? `<button class="ghost" type="button" data-action="print" data-type="quote" data-id="${editing.id}">Print Quote</button>` : ''}<button class="primary" type="submit">${isEdit ? 'Update Quote' : 'Save Quote'}</button></div></footer>
+    </form></div>`;
+}
+
+async function persistQuoteEditor(form, container, editing=null, scopedClientId=null) {
+  if (form.dataset.submitting === 'true') return null;
+  const submitButton = form.querySelector('button[type="submit"]');
+  form.dataset.submitting = 'true';
+  if (submitButton) submitButton.disabled = true;
+  try {
+    const payload = clean(formData(form));
+    payload.client_id = Number(scopedClientId || payload.client_id);
+    numOrDelete(payload, 'project_id');
+    const items = collectQuoteLineItems(container.querySelector('#quoteLineEditor'));
+    const totals = recalcQuoteEditor(container);
+    payload.subtotal = decimalString(totals.subtotal || 0);
+    payload.tax_amount = decimalString(totals.tax || 0);
+    payload.total_amount = decimalString(totals.total || 0);
+    const saved = editing ? await api(`/api/quotes/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}) : await api('/api/quotes', {method:'POST', body: JSON.stringify(payload)});
+    const quoteId = saved.id || editing?.id;
+    await api(`/api/quotes/${quoteId}/line-items`, {method:'PUT', body: JSON.stringify({items: items.map(item => ({...item, quote_id: Number(quoteId)}))})});
+    return {saved, quoteId, payload, items};
+  } catch (err) {
+    delete form.dataset.submitting;
+    if (submitButton) submitButton.disabled = false;
+    throw err;
+  }
 }
 
 function invoiceLineItemsFor(editing, kind) {
@@ -1063,6 +1149,47 @@ function rowActions(type, id) {
   return `<div class="row-actions"><button class="mini" data-action="edit" data-type="${type}" data-id="${id}">Edit</button>${print}<button class="mini danger-mini" data-action="delete" data-type="${type}" data-id="${id}">Delete</button></div>`;
 }
 
+function quoteCardHtml(quote) {
+  const project = projectName(quote.project_id);
+  return `<article class="quote-record-card" data-quote-card data-quote-id="${Number(quote.id)}">
+    <button class="quote-card-open" type="button" data-quote-id="${Number(quote.id)}" aria-label="Open quote ${escapeHtml(quote.quote_number)}">
+      <span class="quote-card-top"><strong>${escapeHtml(quote.quote_number)}</strong><span class="status">${statusLabel(quote.status)}</span></span>
+      <span class="quote-card-main"><b>${escapeHtml(quote.title)}</b><span>${escapeHtml(clientName(quote.client_id))}</span>${project ? `<span>${escapeHtml(project)}</span>` : ''}</span>
+      <span class="quote-card-bottom"><span><small>Total</small><strong>${money(quote.total_amount)}</strong></span><span><small>Issued</small><b>${shortDate(quote.quote_date)}</b></span>${quote.valid_until ? `<span><small>Valid through</small><b>${shortDate(quote.valid_until)}</b></span>` : ''}</span>
+    </button>
+    <div class="quote-card-actions">${rowActions('quote', quote.id)}</div>
+  </article>`;
+}
+
+function quoteListEmptyHtml({filtered=false, search=false}={}) {
+  if (search) return `<section class="panel quote-list-empty hidden" id="quoteSearchEmpty"><strong>No quotes match this search.</strong><span>Try another search or reset the filters.</span><button class="ghost" type="button" data-reset-quote-filters>Reset Filters</button></section>`;
+  if (filtered) return `<section class="panel quote-list-empty"><strong>No quotes match these filters.</strong><span>Reset the filters to see every quote.</span><button class="ghost" type="button" data-reset-quote-filters>Reset Filters</button></section>`;
+  return `<section class="panel quote-list-empty"><strong>No quotes yet.</strong><span>Create a quote for a client or project to begin estimating work.</span><button class="primary" id="emptyAddQuote" type="button">Add Quote</button></section>`;
+}
+
+function attachQuoteSearch(visibleCount) {
+  const input = root.querySelector('#quoteSearch');
+  if (!input) return;
+  const tableRows = [...root.querySelectorAll('.quotes-table .quote-record-row[data-quote-id]')];
+  const cards = [...root.querySelectorAll('[data-quote-card]')];
+  const empty = root.querySelector('#quoteSearchEmpty');
+  const resultCount = root.querySelector('#quoteResultCount');
+  const apply = () => {
+    const query = input.value.trim().toLowerCase();
+    let shown = 0;
+    cards.forEach(card => {
+      const visible = !query || card.textContent.toLowerCase().includes(query);
+      card.classList.toggle('hidden', !visible);
+      if (visible) shown += 1;
+    });
+    tableRows.forEach(row => row.classList.toggle('hidden', Boolean(query) && !row.textContent.toLowerCase().includes(query)));
+    empty?.classList.toggle('hidden', !query || shown > 0);
+    if (resultCount) resultCount.textContent = query ? `${shown} of ${visibleCount} quote${visibleCount === 1 ? '' : 's'}` : `${visibleCount} quote${visibleCount === 1 ? '' : 's'}`;
+  };
+  input.addEventListener('input', apply);
+  apply();
+}
+
 function setupModal(modalId, openButtonId, closeButtonId, cancelButtonId, editing, rerender, firstSelector='input,select,textarea') {
   const modal = document.querySelector(`#${modalId}`);
   const openBtn = document.querySelector(`#${openButtonId}`);
@@ -1083,6 +1210,38 @@ function setupModal(modalId, openButtonId, closeButtonId, cancelButtonId, editin
       closeModal();
     }
   });
+  if (editing) openModal();
+}
+
+function setupQuoteModal({editing=null, rerender}) {
+  const modal = root.querySelector('#quoteModal');
+  const openButton = root.querySelector('#openQuoteModal');
+  if (!modal || !openButton) return;
+  let inertPeers = [];
+  const setBackgroundInert = active => {
+    if (active) inertPeers = [...root.children].filter(child => child !== modal);
+    inertPeers.forEach(child => { child.inert = active; });
+  };
+  const onKeydown = event => { if (event.key === 'Escape') closeModal(); };
+  const openModal = () => {
+    if (!state.quoteReturnFocusSelector) state.quoteReturnFocusSelector = '#openQuoteModal';
+    modal.classList.remove('hidden');
+    setBackgroundInert(true);
+    document.addEventListener('keydown', onKeydown);
+    setTimeout(() => modal.querySelector(editing ? 'input[name="quote_number"]' : 'input[name="title"]')?.focus(), 0);
+  };
+  const closeModal = async () => {
+    document.removeEventListener('keydown', onKeydown);
+    setBackgroundInert(false);
+    const focusSelector = state.quoteReturnFocusSelector || '#openQuoteModal';
+    state.quoteReturnFocusSelector = '';
+    await Promise.resolve(rerender());
+    setTimeout(() => (root.querySelector(focusSelector) || root.querySelector('#openQuoteModal'))?.focus(), 0);
+  };
+  openButton.onclick = openModal;
+  modal.querySelector('#closeQuoteModal')?.addEventListener('click', closeModal);
+  modal.querySelector('#cancelQuoteModal')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
   if (editing) openModal();
 }
 
@@ -1264,6 +1423,7 @@ function attachRowActions() {
     btn.onclick = async e => {
       e.preventDefault();
       e.stopPropagation();
+      if (btn.dataset.type === 'quote') state.quoteReturnFocusSelector = `[data-action="edit"][data-type="quote"][data-id="${Number(btn.dataset.id)}"]`;
       try { await editRecord(btn.dataset.type, Number(btn.dataset.id)); }
       catch (err) { alert(err.message || 'Unable to open edit form.'); }
     };
@@ -1296,7 +1456,10 @@ function attachProjectRowClicks() {
 
 function attachQuoteRowClicks() {
   root.querySelectorAll('.quotes-table .quote-record-row[data-quote-id]').forEach(row => {
-    const open = () => editRecord('quote', Number(row.dataset.quoteId));
+    const open = () => {
+      state.quoteReturnFocusSelector = `[data-action="edit"][data-type="quote"][data-id="${Number(row.dataset.quoteId)}"]`;
+      return editRecord('quote', Number(row.dataset.quoteId));
+    };
     row.addEventListener('click', event => {
       if (event.target.closest('button, a, input, select, textarea')) return;
       open();
@@ -1307,6 +1470,12 @@ function attachQuoteRowClicks() {
       event.preventDefault();
       open();
     });
+  });
+  root.querySelectorAll('.quote-card-open[data-quote-id]').forEach(button => {
+    button.onclick = () => {
+      state.quoteReturnFocusSelector = `[data-action="edit"][data-type="quote"][data-id="${Number(button.dataset.quoteId)}"]`;
+      return editRecord('quote', Number(button.dataset.quoteId));
+    };
   });
 }
 
@@ -1936,57 +2105,42 @@ async function renderQuotes(editId=null) {
   const quoteClientOptions = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   const quoteRows = visibleQuotes.map(q => [escapeHtml(q.quote_number),escapeHtml(q.title),escapeHtml(clientName(q.client_id)),escapeHtml(projectName(q.project_id)),`<span class="status">${statusLabel(q.status)}</span>`,q.quote_date,q.valid_until,money(q.total_amount),rowActions('quote', q.id)]);
   const quoteRowAttrs = visibleQuotes.map(q => `class="quote-record-row" role="button" tabindex="0" data-quote-id="${Number(q.id)}"`);
-  root.innerHTML = `<div class="page-actions"><div class="toolbar quote-page-toolbar"><details class="filter-menu"><summary>Filters</summary><div class="filter-menu-panel"><label class="search-field compact-search">Search<input id="quoteSearch" type="search" placeholder="Search quotes..."></label><label class="filter-field">Status<select id="quoteStatusFilter"><option value="all">All Statuses</option><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label><label class="filter-field">Client<select id="quoteClientFilter"><option value="all">All Clients</option>${quoteClientOptions}</select></label><button class="ghost" id="resetQuoteFilters" type="button">Reset Filters</button></div></details><button class="primary" id="openQuoteModal" type="button">+ Add Quote</button></div></div>
-  ${table(['Quote #','Title','Client','Project','Status','Date','Valid Until','Total','Actions'], quoteRows, 'quotes-table', quoteRowAttrs)}
-  <div id="quoteModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="quoteModalTitle"><div class="modal-card wide-modal"><div class="modal-header"><div><h2 id="quoteModalTitle">${editing ? 'Edit Quote' : 'Add Quote'}</h2><p>${editing ? 'Update quote details and line items.' : 'Create a quote linked to a client/project.'}</p></div><button class="ghost modal-close" id="closeQuoteModal" type="button" aria-label="Close quote form">×</button></div><form id="quoteForm" class="form-grid">
-    <div class="quote-sheet-banner full">Quote – Internal Working Sheet</div>
-    <div class="quote-meta-grid full">
-      <label>Prepared by<input value="${escapeHtml(settings.company_name || 'Forged Systems LLC')}" disabled></label>
-      <label>Quote #<input name="quote_number" required${quoteNumberAttrs} value="${escapeHtml(generatedQuoteNumber)}"></label>
-      <label>Client<select name="client_id" id="quoteClient" required>${clientOptions(editing?.client_id)}</select></label>
-      <label>Valid Through<input name="valid_until" type="date" value="${escapeHtml(editing?.valid_until)}"></label>
-      <label>Site / Project<select name="project_id" id="quoteProject">${projectOptions(editing?.project_id, editing?.client_id)}</select></label>
-      <label>Issued Date<input name="quote_date" type="date" required value="${escapeHtml(editing?.quote_date || todayIso())}"></label>
-      <label>Quote Title<input name="title" required value="${escapeHtml(editing?.title)}" placeholder="Camera install quote"></label>
-      <label>Status<select name="status"><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label>
-    </div>
-    <input name="subtotal" type="hidden" value="${escapeHtml(editing?.subtotal || '0.00')}"><input name="tax_amount" type="hidden" value="${escapeHtml(editing?.tax_amount || '0.00')}"><input name="total_amount" type="hidden" value="${escapeHtml(editing?.total_amount || '0.00')}">
-    ${quoteLineEditorHtml(existingItems, settings)}
-    <div class="quote-section-title full">Payment Terms & Conditions</div>
-    <label class="full">Terms<textarea name="terms" rows="6">${escapeHtml(quoteTermsValue(editing?.terms, settings.default_quote_terms))}</textarea></label>
-    <div class="quote-section-title full">Internal Notes</div>
-    <label class="full">Notes<textarea name="notes">${escapeHtml(editing?.notes)}</textarea></label>
-    <div class="form-actions"><button class="primary" type="submit">${editing ? 'Update Quote' : 'Save Quote'}</button>${editing ? `<button class="ghost" type="button" data-action="print" data-type="quote" data-id="${editing.id}">Print Quote</button>` : ''}<button class="ghost" type="button" id="cancelQuoteModal">Cancel</button></div>
-  </form></div></div>`;
-  quoteStatusFilter.value = state.quoteStatusFilter || 'all';
-  quoteClientFilter.value = state.quoteClientFilter || 'all';
-  if (quoteStatusFilter.value !== 'all' || quoteClientFilter.value !== 'all') root.querySelector('.filter-menu')?.setAttribute('open', '');
-  quoteStatusFilter.onchange = () => { state.quoteStatusFilter = quoteStatusFilter.value; renderQuotes(); };
-  quoteClientFilter.onchange = () => { state.quoteClientFilter = quoteClientFilter.value; renderQuotes(); };
-  resetQuoteFilters.onclick = () => { state.quoteStatusFilter = 'all'; state.quoteClientFilter = 'all'; quoteSearch.value = ''; renderQuotes(); };
-  quoteForm.status.value = editing?.status || 'draft';
-  quoteClient.onchange = () => { quoteProject.innerHTML = projectOptions('', quoteClient.value); };
+  const activeFilterCount = Number(quoteStatusFilterValue !== 'all') + Number(quoteClientFilterValue !== 'all');
+  const listHtml = data.items.length === 0
+    ? quoteListEmptyHtml()
+    : visibleQuotes.length === 0
+      ? quoteListEmptyHtml({filtered:true})
+      : `<div class="quote-desktop-list">${table(['Quote #','Title','Client','Project','Status','Date','Valid Until','Total','Actions'], quoteRows, 'quotes-table', quoteRowAttrs)}</div><div class="quote-mobile-list" aria-label="Quotes">${visibleQuotes.map(quoteCardHtml).join('')}</div>${quoteListEmptyHtml({search:true})}`;
+  root.innerHTML = `<div class="quote-list-controls panel"><div class="quote-list-primary"><label class="search-field compact-search">Search Quotes<input id="quoteSearch" type="search" placeholder="Quote number, title, client, or project"></label><button class="primary" id="openQuoteModal" type="button">Add Quote</button></div><div class="quote-filter-row"><label class="filter-field">Status<select id="quoteStatusFilter"><option value="all">All Statuses</option><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label><label class="filter-field">Client<select id="quoteClientFilter"><option value="all">All Clients</option>${quoteClientOptions}</select></label><button class="ghost" id="resetQuoteFilters" type="button">Reset Filters</button><span class="quote-filter-indicator ${activeFilterCount ? '' : 'hidden'}">${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}</span><span class="quote-result-count" id="quoteResultCount">${visibleQuotes.length} quote${visibleQuotes.length === 1 ? '' : 's'}</span></div></div>
+    <div class="quote-list-results">${listHtml}</div>
+    <div id="quoteModal" class="modal-backdrop quote-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="quoteFormTitle">${quoteEditorFormHtml({editing, generatedQuoteNumber, quoteNumberAttrs, settings, existingItems, formId:'quoteForm', clientSelectId:'quoteClient', projectSelectId:'quoteProject', closeButtonId:'closeQuoteModal', cancelButtonId:'cancelQuoteModal'})}</div>`;
+  const statusFilter = root.querySelector('#quoteStatusFilter');
+  const clientFilter = root.querySelector('#quoteClientFilter');
+  const searchInput = root.querySelector('#quoteSearch');
+  const form = root.querySelector('#quoteForm');
+  const clientSelect = root.querySelector('#quoteClient');
+  const projectSelect = root.querySelector('#quoteProject');
+  statusFilter.value = state.quoteStatusFilter || 'all';
+  clientFilter.value = state.quoteClientFilter || 'all';
+  statusFilter.onchange = () => { state.quoteStatusFilter = statusFilter.value; renderQuotes(); };
+  clientFilter.onchange = () => { state.quoteClientFilter = clientFilter.value; renderQuotes(); };
+  const resetFilters = () => { state.quoteStatusFilter = 'all'; state.quoteClientFilter = 'all'; if (searchInput) searchInput.value = ''; renderQuotes(); };
+  root.querySelector('#resetQuoteFilters').onclick = resetFilters;
+  root.querySelectorAll('[data-reset-quote-filters]').forEach(button => { button.onclick = resetFilters; });
+  root.querySelector('#emptyAddQuote')?.addEventListener('click', () => root.querySelector('#openQuoteModal')?.click());
+  form.status.value = editing?.status || 'draft';
+  if (clientSelect) clientSelect.onchange = () => { projectSelect.innerHTML = projectOptions('', clientSelect.value); };
   wireQuoteLineEditor(root);
-  quoteForm.onsubmit = async e => {
+  form.onsubmit = async e => {
     e.preventDefault();
-    const payload = clean(formData(quoteForm));
-    payload.client_id = Number(payload.client_id);
-    numOrDelete(payload, 'project_id');
-    const items = collectQuoteLineItems(root.querySelector('#quoteLineEditor'));
-    const totals = recalcQuoteEditor(root);
-    payload.subtotal = decimalString(totals.subtotal || 0);
-    payload.tax_amount = decimalString(totals.tax || 0);
-    payload.total_amount = decimalString(totals.total || 0);
     try {
-      const saved = editing ? await api(`/api/quotes/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}) : await api('/api/quotes', {method:'POST', body: JSON.stringify(payload)});
-      const quoteId = saved.id || editing?.id;
-      const itemsWithQuote = items.map(item => ({...item, quote_id: Number(quoteId)}));
-      await api(`/api/quotes/${quoteId}/line-items`, {method:'PUT', body: JSON.stringify({items: itemsWithQuote})});
+      const result = await persistQuoteEditor(form, root, editing);
+      if (!result) return;
       show(editing ? 'Quote updated' : 'Quote saved'); await preloadLookups(); await renderQuotes();
     } catch (err) { alert(err.message); }
   };
-  setupModal('quoteModal','openQuoteModal','closeQuoteModal','cancelQuoteModal',editing,renderQuotes, editing ? 'input[name="quote_number"]' : 'input[name="title"]');
-  attachPageSearch('quoteSearch');
+  setupQuoteModal({editing, rerender:renderQuotes});
+  attachQuoteSearch(visibleQuotes.length);
   attachRowActions();
   attachQuoteRowClicks();
 }
@@ -2110,7 +2264,13 @@ async function renderReceipts(editId=null) {
 
 
 function closeClientQuickModal() {
-  document.querySelector('#clientQuickModal')?.remove();
+  const modal = document.querySelector('#clientQuickModal');
+  if (!modal) return;
+  if (modal._quoteEscapeHandler) document.removeEventListener('keydown', modal._quoteEscapeHandler);
+  if (modal.classList.contains('quote-editor-backdrop')) [...root.children].forEach(child => { child.inert = false; });
+  const returnFocus = modal._quoteReturnFocus;
+  modal.remove();
+  setTimeout(() => returnFocus?.isConnected && returnFocus.focus?.(), 0);
 }
 
 async function findRecordForModal(type, id) {
@@ -2133,6 +2293,7 @@ function clientScopeLabel(clientId) {
 }
 
 async function openClientQuickModal(clientId, type, editId=null, opts={}) {
+  const returnFocus = document.activeElement;
   closeClientQuickModal();
   await preloadLookups();
   const editing = await findRecordForModal(type, editId);
@@ -2202,44 +2363,22 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     const existingItems = isEdit ? (await api(`/api/quotes/${editing.id}/line-items`)).items : [];
     const generatedQuoteNumber = editing?.quote_number || await nextQuoteNumber();
     const quoteNumberAttrs = isEdit ? '' : ' readonly aria-readonly="true" title="Generated automatically to prevent duplicate quote numbers"';
-    wrapper.innerHTML = `<div class="modal-card wide-modal"><div class="modal-header"><div><h2>${isEdit ? 'Edit Quote' : 'Add Quote'}</h2><p>${isEdit ? 'Update this quote without leaving the client.' : `Create a quote for ${clientLabel}.`}</p></div><button class="ghost modal-close" type="button" aria-label="Close quote form">×</button></div><form id="clientQuoteForm" class="form-grid">
-      <div class="quote-sheet-banner full">Quote – Internal Working Sheet</div>
-      <div class="quote-meta-grid full">
-        <label>Prepared by<input value="${escapeHtml(settings.company_name || 'Forged Systems LLC')}" disabled></label>
-        <label>Quote #<input name="quote_number" required${quoteNumberAttrs} value="${escapeHtml(generatedQuoteNumber)}"></label>
-        ${clientHidden}
-        <label>Valid Through<input name="valid_until" type="date" value="${escapeHtml(editing?.valid_until)}"></label>
-        <label>Site / Project<select name="project_id">${projectOptions(scopedProjectId, clientId)}</select></label>
-        <label>Issued Date<input name="quote_date" type="date" required value="${escapeHtml(editing?.quote_date || todayIso())}"></label>
-        <label>Quote Title<input name="title" required value="${escapeHtml(editing?.title)}" placeholder="Camera install quote"></label>
-        <label>Status<select name="status"><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label>
-      </div>
-      <input name="subtotal" type="hidden" value="${escapeHtml(editing?.subtotal || '0.00')}"><input name="tax_amount" type="hidden" value="${escapeHtml(editing?.tax_amount || '0.00')}"><input name="total_amount" type="hidden" value="${escapeHtml(editing?.total_amount || '0.00')}">
-      ${quoteLineEditorHtml(existingItems, settings)}
-      <div class="quote-section-title full">Payment Terms & Conditions</div>
-      <label class="full">Terms<textarea name="terms" rows="6">${escapeHtml(quoteTermsValue(editing?.terms, settings.default_quote_terms))}</textarea></label>
-      <div class="quote-section-title full">Internal Notes</div>
-      <label class="full">Notes<textarea name="notes">${escapeHtml(editing?.notes)}</textarea></label>
-      <div class="form-actions"><button class="primary" type="submit">${isEdit ? 'Update Quote' : 'Save Quote'}</button>${isEdit ? `<button class="ghost" type="button" data-action="print" data-type="quote" data-id="${editing.id}">Print Quote</button>` : ''}<button class="ghost quick-cancel" type="button">Cancel</button></div>
-    </form></div>`;
+    wrapper.classList.add('quote-editor-backdrop');
+    wrapper.setAttribute('aria-labelledby', 'clientQuoteFormTitle');
+    wrapper.innerHTML = quoteEditorFormHtml({editing, generatedQuoteNumber, quoteNumberAttrs, settings, existingItems, formId:'clientQuoteForm', projectSelectId:'clientQuoteProject', scopedClientId:clientId, scopedProjectId, clientLabel, scoped:true});
     root.appendChild(wrapper);
+    wrapper._quoteReturnFocus = returnFocus;
+    [...root.children].filter(child => child !== wrapper).forEach(child => { child.inert = true; });
+    wrapper._quoteEscapeHandler = event => { if (event.key === 'Escape') closeClientQuickModal(); };
+    document.addEventListener('keydown', wrapper._quoteEscapeHandler);
     const form = wrapper.querySelector('#clientQuoteForm');
     form.status.value = editing?.status || 'draft';
     wireQuoteLineEditor(wrapper);
     form.onsubmit = async e => {
       e.preventDefault();
-      const payload = clean(formData(form));
-      payload.client_id = Number(clientId);
-      numOrDelete(payload, 'project_id');
-      const items = collectQuoteLineItems(wrapper.querySelector('#quoteLineEditor'));
-      const totals = recalcQuoteEditor(wrapper);
-      payload.subtotal = decimalString(totals.subtotal || 0);
-      payload.tax_amount = decimalString(totals.tax || 0);
-      payload.total_amount = decimalString(totals.total || 0);
       try {
-        const saved = isEdit ? await api(`/api/quotes/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}) : await api('/api/quotes', {method:'POST', body: JSON.stringify(payload)});
-        const quoteId = saved.id || editing?.id;
-        await api(`/api/quotes/${quoteId}/line-items`, {method:'PUT', body: JSON.stringify({items: items.map(item => ({...item, quote_id: Number(quoteId)}))})});
+        const result = await persistQuoteEditor(form, wrapper, editing, clientId);
+        if (!result) return;
         await closeAfter('quotes', isEdit ? 'Quote updated' : 'Quote saved');
       } catch(err) { alert(err.message); }
     };

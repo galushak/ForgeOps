@@ -63,8 +63,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-phase2-polish" in html
-    assert "forgeops-phase-2-home-clients-projects-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase3-quotes" in html
+    assert "forgeops-phase-3-quotes-v2" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -88,6 +88,94 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     assert ".project-detail-tabs" in phase2_css
     assert "overflow: visible" in phase2_css
     assert "@media (max-width: 760px)" in phase2_css
+
+
+def test_frontend_phase_3_quote_workflow_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    phase3_css = (static_dir / "phase3-quotes.css").read_text(encoding="utf-8")
+    service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
+
+    assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
+    assert "/static/js/app.js?v=0.8.12-phase3-quotes" in html
+    assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
+
+    for marker in [
+        "quote-list-controls",
+        "Search Quotes",
+        'id="quoteStatusFilter"',
+        'id="quoteClientFilter"',
+        'id="resetQuoteFilters"',
+        'id="openQuoteModal"',
+        "quote-mobile-list",
+        "quote-desktop-list",
+        "quote-record-card",
+    ]:
+        assert marker in javascript
+
+    assert "function quoteEditorFormHtml" in javascript
+    assert javascript.count("quoteEditorFormHtml({") == 3
+    assert "function persistQuoteEditor" in javascript
+    assert "formId:'quoteForm'" in javascript
+    assert "formId:'clientQuoteForm'" in javascript
+
+    line_editor = javascript[
+        javascript.index("function quoteLineEditorHtml") : javascript.index("function collectQuoteLineItems")
+    ]
+    required_line_section_order = [
+        "Equipment & Materials",
+        "Shipping, Tariff & Markup",
+        "Estimated Labor",
+        "Quote Summary",
+    ]
+    assert [line_editor.index(marker) for marker in required_line_section_order] == sorted(
+        line_editor.index(marker) for marker in required_line_section_order
+    )
+
+    form_editor = javascript[
+        javascript.index("function quoteEditorFormHtml") : javascript.index("async function persistQuoteEditor")
+    ]
+    assert form_editor.index("Quote Details") < form_editor.index("quoteLineEditorHtml")
+    assert form_editor.index("quoteLineEditorHtml") < form_editor.index("Payment Terms & Conditions")
+    assert form_editor.index("Payment Terms & Conditions") < form_editor.index("Internal Notes")
+
+    for marker in [
+        'name="client_id"',
+        'name="project_id"',
+        'name="quote_number"',
+        'id="addEquipmentLine"',
+        'id="addLaborLine"',
+        'id="quoteShippingInput"',
+        'id="quoteTariffInput"',
+        'id="quoteTaxDisplay"',
+        'id="quoteMarkupPercentInput"',
+        'id="quoteGrandTotalDisplay"',
+        'name="terms"',
+        'name="notes"',
+        "Save Quote",
+        "Cancel",
+        "Print Quote",
+    ]:
+        assert marker in javascript
+
+    assert "Quote – Internal Working Sheet" not in javascript
+    assert "just like the spreadsheet" not in javascript
+    assert "quote-approval-preview" not in javascript
+    assert "Client Approval & Authorization" in javascript
+    assert 'Client Name:<span class="signature-line"' in javascript
+
+    for marker in [
+        ".quote-mobile-list",
+        ".quote-desktop-list",
+        ".quote-line-card",
+        ".quote-fee-grid",
+        ".quote-summary-grid",
+        ".quote-editor-actions",
+        "@media (max-width: 800px)",
+        "env(safe-area-inset-bottom",
+    ]:
+        assert marker in phase3_css
 
 
 def test_health(client):
