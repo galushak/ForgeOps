@@ -119,7 +119,7 @@ function normalizeLedgerPayload(payload) {
 }
 
 const titles = {
-  dashboard: ['Dashboard', 'Internal tracking overview for open work, invoices, and labor.'],
+  dashboard: ['Home', 'Internal tracking overview for open work, invoices, and labor.'],
   clients: ['Clients', 'Client database, contact info, and site addresses.'],
   projects: ['Projects', 'Project-centered workflow for jobs and client work.'],
   quotes: ['Quotes', 'Create and track quotes attached to clients and projects.'],
@@ -127,7 +127,7 @@ const titles = {
   ledger: ['Ledger', 'Revenue, expenses, reimbursements, and admin costs.'],
   labor: ['Labor', 'Track billable work against clients and projects.'],
   reports: ['Reports', 'Money flow, sales-tax periods, and client/project summaries.'],
-  admin: ['Backup & Restore', 'Download and restore your full app data package.'],
+  admin: ['Settings & Backup', 'Manage business defaults, application lists, and full-data backups.'],
 };
 
 function escapeHtml(value) {
@@ -703,28 +703,137 @@ async function saveLedgerEntryWithReceipt(form, payload, editing=null) {
   return entry;
 }
 
-function setMobileNav(open) {
-  document.body.classList.toggle('mobile-nav-open', open);
-  const btn = document.querySelector('#mobileMenuBtn');
-  if (btn) {
-    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    btn.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
-    btn.textContent = open ? '×' : '☰';
+const THEME_STORAGE_KEY = 'forgeops-theme';
+const THEME_COLORS = { light: '#10233c', dark: '#0b1420' };
+let activeShellDialog = null;
+let activeShellOpener = null;
+
+function applyTheme(theme, persist=false) {
+  const selected = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = selected;
+  document.documentElement.style.colorScheme = selected;
+  document.querySelector('#themeColorMeta')?.setAttribute('content', THEME_COLORS[selected]);
+  if (persist) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, selected); } catch (_) { /* Theme still applies for this page. */ }
+  }
+  const nextLabel = selected === 'dark' ? 'Light theme' : 'Dark theme';
+  const accessibleLabel = selected === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+  document.querySelectorAll('[data-theme-label]').forEach(label => { label.textContent = nextLabel; });
+  document.querySelectorAll('[data-theme-toggle]').forEach(button => {
+    button.setAttribute('aria-label', accessibleLabel);
+    button.setAttribute('title', accessibleLabel);
+  });
+}
+
+function toggleTheme() {
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
+}
+
+function shellDialogFocusables(dialog) {
+  return [...dialog.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter(element => !element.closest('.hidden'));
+}
+
+function hasOpenBusinessModal() {
+  return [...document.querySelectorAll('.modal-backdrop:not(.hidden)')].some(modal => !modal.closest('.shell-dialog'));
+}
+
+function openShellDialog(id, opener) {
+  const dialog = document.querySelector(`#${id}`);
+  if (!dialog || hasOpenBusinessModal()) return false;
+  if (activeShellDialog && activeShellDialog !== dialog) closeShellDialog(activeShellDialog.id, false);
+  activeShellDialog = dialog;
+  activeShellOpener = opener || document.activeElement;
+  dialog.classList.remove('hidden');
+  document.body.classList.add('shell-dialog-open');
+  const appView = document.querySelector('#appView');
+  if (appView && !appView.classList.contains('hidden')) appView.inert = true;
+  if (id === 'mobileToolsMenu') document.querySelector('#mobileToolsBtn')?.setAttribute('aria-expanded', 'true');
+  setTimeout(() => (shellDialogFocusables(dialog)[0] || dialog.querySelector('.shell-sheet'))?.focus(), 0);
+  return true;
+}
+
+function closeShellDialog(id=activeShellDialog?.id, restoreFocus=true) {
+  const dialog = id ? document.querySelector(`#${id}`) : activeShellDialog;
+  if (!dialog) return;
+  dialog.classList.add('hidden');
+  document.body.classList.remove('shell-dialog-open');
+  const appView = document.querySelector('#appView');
+  if (appView) appView.inert = false;
+  document.querySelector('#mobileToolsBtn')?.setAttribute('aria-expanded', 'false');
+  const opener = activeShellOpener;
+  if (dialog === activeShellDialog) {
+    activeShellDialog = null;
+    activeShellOpener = null;
+  }
+  if (restoreFocus && opener?.isConnected) setTimeout(() => opener.focus(), 0);
+}
+
+function trapShellDialogFocus(event) {
+  if (!activeShellDialog) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeShellDialog();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = shellDialogFocusables(activeShellDialog);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
-function closeMobileNav() {
-  setMobileNav(false);
+function updateActiveNavigation(page) {
+  document.querySelectorAll('.nav[data-page]').forEach(button => {
+    const active = button.dataset.page === page;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  const mobileTitle = document.querySelector('#mobilePageTitle');
+  if (mobileTitle) mobileTitle.textContent = titles[page]?.[0] || 'ForgeOps';
 }
 
-function toggleMobileNav() {
-  setMobileNav(!document.body.classList.contains('mobile-nav-open'));
-}
-
-async function navigateFromSidebar(page) {
-  closeMobileNav();
+async function navigateFromNavigation(page) {
+  closeShellDialog(activeShellDialog?.id, false);
   if (state.page === page && root.innerHTML.trim()) return;
   await loadPage(page);
+}
+
+const QUICK_CREATE_ACTIONS = {
+  client: { page: 'clients', control: 'openClientModal' },
+  project: { page: 'projects', control: 'openProjectModal' },
+  labor: { page: 'labor', control: 'openLaborModal' },
+  expense: { page: 'ledger', control: 'openLedgerModal' },
+  quote: { page: 'quotes', control: 'openQuoteModal' },
+  invoice: { page: 'invoices', control: 'openInvoiceModal' },
+};
+
+async function runQuickCreate(action) {
+  const target = QUICK_CREATE_ACTIONS[action];
+  if (!target) return;
+  closeShellDialog('quickCreateSheet', false);
+  if (state.page !== target.page || !root.innerHTML.trim()) await loadPage(target.page);
+  const openControl = document.querySelector(`#${target.control}`);
+  if (!openControl) {
+    show('That create form is not available right now.');
+    return;
+  }
+  openControl.click();
+  if (action === 'expense') {
+    const kind = document.querySelector('#ledgerForm [name="kind"]');
+    if (kind) {
+      kind.value = 'expense';
+      kind.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
 }
 
 function registerServiceWorker() {
@@ -781,6 +890,8 @@ function showSetupPane(which) {
   document.querySelector('#setupRestoreForm').classList.toggle('hidden', create);
   document.querySelector('#showCreateSetup').classList.toggle('active', create);
   document.querySelector('#showRestoreSetup').classList.toggle('active', !create);
+  document.querySelector('#showCreateSetup').setAttribute('aria-selected', create ? 'true' : 'false');
+  document.querySelector('#showRestoreSetup').setAttribute('aria-selected', create ? 'false' : 'true');
   setupError.textContent = '';
 }
 
@@ -802,11 +913,13 @@ async function refreshCurrentUser() {
   try {
     state.user = await api('/api/auth/me');
     const userBtn = document.querySelector('#userBtn');
-    if (userBtn) userBtn.textContent = state.user?.full_name ? `User: ${state.user.full_name}` : 'User';
+    if (userBtn) userBtn.title = state.user?.full_name ? `User Profile: ${state.user.full_name}` : 'User Profile';
+    const mobileUserBtn = document.querySelector('#mobileUserBtn');
+    if (mobileUserBtn) mobileUserBtn.title = state.user?.full_name ? `User Profile: ${state.user.full_name}` : 'User Profile';
   } catch {
     state.user = null;
     const userBtn = document.querySelector('#userBtn');
-    if (userBtn) userBtn.textContent = 'User';
+    if (userBtn) userBtn.title = 'User Profile';
   }
 }
 
@@ -896,7 +1009,7 @@ function addressOptions(addresses, selected='') {
 async function loadPage(page) {
   state.page = page; state.editing = null; state.clientDetailId = null;
   root.innerHTML = '<div class="panel"><p class="muted">Loading...</p></div>';
-  document.querySelectorAll('.nav').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  updateActiveNavigation(page);
   document.querySelector('#pageTitle').textContent = titles[page][0];
   document.querySelector('#pageSubtitle').textContent = titles[page][1];
   await preloadLookups();
@@ -986,7 +1099,7 @@ function printWindow(title, bodyHtml) {
   </style></head><body><button id="printBtn" class="no-print" type="button">Print</button>${bodyHtml}</body></html>`;
   const win = window.open('', '_blank', 'width=900,height=1100');
   if (!win) {
-    alert('Popup blocked. Allow popups for Forged Systems Tracking to print.');
+    alert('Popup blocked. Allow popups for ForgeOps to print.');
     return;
   }
   win.document.open();
@@ -2006,10 +2119,10 @@ async function renderDashboard() {
     <div class="card"><span>Uninvoiced Labor</span><strong>${c.uninvoiced_labor}</strong></div>
     <div class="card"><span>Uninvoiced Value</span><strong>${money(c.uninvoiced_labor_value)}</strong></div>
   </div>
-  <div class="panel dashboard-panel"><h2>Open Projects</h2>${dashboardTable(['Project','Client','Status','Start'], (data.open_projects || []).map(p => [escapeHtml(p.name), escapeHtml(p.client), `<span class="status">${statusLabel(p.status)}</span>`, shortDate(p.start_date)]), 'No open projects.', (data.open_projects || []).map(p => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="project" data-dashboard-id="${Number(p.id)}"`))}</div>
-  <div class="panel dashboard-panel"><h2>Open Quotes</h2>${dashboardTable(['Quote','Client','Project','Status','Total','Valid Until'], (data.open_quotes || []).map(q => [escapeHtml(q.quote_number), escapeHtml(q.client), escapeHtml(q.project), `<span class="status">${statusLabel(q.status)}</span>`, money(q.total_amount), shortDate(q.valid_until)]), 'No open quotes.', (data.open_quotes || []).map(q => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="quote" data-dashboard-id="${Number(q.id)}"`))}</div>
-  <div class="panel dashboard-panel"><h2>Open Invoices</h2>${dashboardTable(['Invoice','Client','Project','Status','Balance','Due'], (data.open_invoices || []).map(i => [escapeHtml(i.invoice_number), escapeHtml(i.client), escapeHtml(i.project), `<span class="status">${statusLabel(i.status)}</span>`, money(i.balance_due), shortDate(i.due_date)]), 'No open invoices.', (data.open_invoices || []).map(i => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="invoice" data-dashboard-id="${Number(i.id)}"`))}</div>
-  <div class="panel dashboard-panel"><h2>Uninvoiced Labor</h2>${dashboardTable(['Date','Client','Project','Service','Value'], (data.uninvoiced_labor_items || []).map(l => [shortDate(l.work_date), escapeHtml(l.client), escapeHtml(l.project), escapeHtml(l.service_type), money(l.line_total)]), 'No uninvoiced labor.', (data.uninvoiced_labor_items || []).map(l => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="labor" data-dashboard-id="${Number(l.id)}"`))}</div></div>`;
+  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Open Projects</h2><button class="mini" type="button" data-view-page="projects">View All</button></div>${dashboardTable(['Project','Client','Status','Start'], (data.open_projects || []).map(p => [escapeHtml(p.name), escapeHtml(p.client), `<span class="status">${statusLabel(p.status)}</span>`, shortDate(p.start_date)]), 'No open projects.', (data.open_projects || []).map(p => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="project" data-dashboard-id="${Number(p.id)}"`))}</div>
+  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Open Quotes</h2><button class="mini" type="button" data-view-page="quotes">View All</button></div>${dashboardTable(['Quote','Client','Project','Status','Total','Valid Until'], (data.open_quotes || []).map(q => [escapeHtml(q.quote_number), escapeHtml(q.client), escapeHtml(q.project), `<span class="status">${statusLabel(q.status)}</span>`, money(q.total_amount), shortDate(q.valid_until)]), 'No open quotes.', (data.open_quotes || []).map(q => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="quote" data-dashboard-id="${Number(q.id)}"`))}</div>
+  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Open Invoices</h2><button class="mini" type="button" data-view-page="invoices">View All</button></div>${dashboardTable(['Invoice','Client','Project','Status','Balance','Due'], (data.open_invoices || []).map(i => [escapeHtml(i.invoice_number), escapeHtml(i.client), escapeHtml(i.project), `<span class="status">${statusLabel(i.status)}</span>`, money(i.balance_due), shortDate(i.due_date)]), 'No open invoices.', (data.open_invoices || []).map(i => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="invoice" data-dashboard-id="${Number(i.id)}"`))}</div>
+  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Uninvoiced Labor</h2><button class="mini" type="button" data-view-page="labor">View All</button></div>${dashboardTable(['Date','Client','Project','Service','Value'], (data.uninvoiced_labor_items || []).map(l => [shortDate(l.work_date), escapeHtml(l.client), escapeHtml(l.project), escapeHtml(l.service_type), money(l.line_total)]), 'No uninvoiced labor.', (data.uninvoiced_labor_items || []).map(l => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="labor" data-dashboard-id="${Number(l.id)}"`))}</div></div>`;
   attachDashboardActions();
 }
 
@@ -2024,6 +2137,9 @@ async function openDashboardRecord(type, id) {
 }
 
 function attachDashboardActions() {
+  root.querySelectorAll('[data-view-page]').forEach(button => {
+    button.addEventListener('click', () => loadPage(button.dataset.viewPage));
+  });
   root.querySelectorAll('[data-dashboard-type][data-dashboard-id]').forEach(row => {
     const open = () => openDashboardRecord(row.dataset.dashboardType, Number(row.dataset.dashboardId));
     row.addEventListener('click', event => {
@@ -2155,8 +2271,21 @@ document.querySelector('#showCreateSetup').addEventListener('click', () => showS
 document.querySelector('#showRestoreSetup').addEventListener('click', () => showSetupPane('restore'));
 document.querySelector('#userBtn').addEventListener('click', openUserModal);
 document.querySelector('#logoutBtn').addEventListener('click', logout);
-document.querySelector('#mobileMenuBtn')?.addEventListener('click', toggleMobileNav);
-document.querySelector('#sidebarScrim')?.addEventListener('click', closeMobileNav);
+document.querySelector('#mobileUserBtn')?.addEventListener('click', () => {
+  closeShellDialog('mobileToolsMenu', false);
+  openUserModal();
+});
+document.querySelector('#mobileLogoutBtn')?.addEventListener('click', logout);
+document.querySelector('#mobileToolsBtn')?.addEventListener('click', event => openShellDialog('mobileToolsMenu', event.currentTarget));
+document.querySelector('#desktopCreateBtn')?.addEventListener('click', event => openShellDialog('quickCreateSheet', event.currentTarget));
+document.querySelector('#mobileCreateBtn')?.addEventListener('click', event => openShellDialog('quickCreateSheet', event.currentTarget));
+document.querySelectorAll('[data-close-shell]').forEach(control => {
+  control.addEventListener('click', () => closeShellDialog(control.dataset.closeShell));
+});
+document.querySelectorAll('[data-theme-toggle]').forEach(control => control.addEventListener('click', toggleTheme));
+document.querySelectorAll('[data-quick-create]').forEach(control => {
+  control.addEventListener('click', () => runQuickCreate(control.dataset.quickCreate).catch(err => alert(err.message)));
+});
 document.addEventListener('click', event => {
   const btn = event.target.closest('[data-action="preview-receipt"]');
   if (!btn) return;
@@ -2164,8 +2293,11 @@ document.addEventListener('click', event => {
   event.stopPropagation();
   openReceiptPreviewModal(Number(btn.dataset.id)).catch(err => alert(err.message || 'Unable to preview receipt.'));
 });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMobileNav(); });
-document.querySelectorAll('.nav').forEach(b => b.addEventListener('click', () => navigateFromSidebar(b.dataset.page)));
+document.addEventListener('keydown', trapShellDialogFocus);
+document.querySelectorAll('.nav[data-page]').forEach(button => {
+  button.addEventListener('click', () => navigateFromNavigation(button.dataset.page).catch(err => alert(err.message)));
+});
+applyTheme(document.documentElement.dataset.theme);
 registerServiceWorker();
 (async function boot(){
   try {

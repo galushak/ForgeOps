@@ -1,5 +1,58 @@
+import json
 from io import BytesIO
+from pathlib import Path
 from zipfile import ZipFile
+
+
+def test_frontend_shell_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    shell_css = (static_dir / "shell.css").read_text(encoding="utf-8")
+    manifest = json.loads((static_dir / "manifest.webmanifest").read_text(encoding="utf-8"))
+
+    assert "<title>ForgeOps</title>" in html
+    assert 'aria-label="ForgeOps">FO<' in html
+    assert manifest["name"] == "ForgeOps"
+    assert manifest["short_name"] == "ForgeOps"
+    assert [icon["src"] for icon in manifest["icons"]] == [
+        "/static/icons/icon-192.png",
+        "/static/icons/icon-512.png",
+    ]
+
+    assert '<html lang="en" data-theme="light">' in html
+    assert "forgeops-theme" in html
+    assert "forgeops-theme" in javascript
+    assert html.count("data-theme-toggle") >= 3
+
+    bottom_nav = html[
+        html.index('<nav class="mobile-bottom-nav"') : html.index(
+            "</nav>", html.index('<nav class="mobile-bottom-nav"')
+        )
+    ]
+    required_order = [
+        'data-page="dashboard"',
+        'data-page="clients"',
+        'id="mobileCreateBtn"',
+        'data-page="projects"',
+        'data-page="ledger"',
+        'data-page="reports"',
+    ]
+    assert [bottom_nav.index(marker) for marker in required_order] == sorted(
+        bottom_nav.index(marker) for marker in required_order
+    )
+    assert html.count('id="mobileCreateBtn"') == 1
+    assert 'aria-label="Create new"' in bottom_nav
+
+    for label in ["New Client", "New Project", "Add Labor", "Add Expense", "New Quote", "New Invoice"]:
+        assert label in html
+    for page in ["quotes", "invoices", "labor", "admin"]:
+        assert f'data-page="{page}"' in html
+
+    assert "mobileMenuBtn" not in html
+    assert "sidebarScrim" not in html
+    assert "mobile-nav-open" not in javascript
+    assert "env(safe-area-inset-bottom" in shell_css
 
 
 def test_health(client):

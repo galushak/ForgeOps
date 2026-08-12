@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">ForgeOps FO monogram</title>
+  <rect width="512" height="512" rx="104" fill="#10233c" />
+  <rect x="72" y="72" width="368" height="368" rx="84" fill="#2563eb" />
+  <text x="256" y="314" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="168" font-weight="800" letter-spacing="-10" text-anchor="middle">FO</text>
+</svg>

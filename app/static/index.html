@@ -1,35 +1,76 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Forged Systems Tracking</title>
-  <meta name="theme-color" content="#101828" />
+  <title>ForgeOps</title>
+  <meta id="themeColorMeta" name="theme-color" content="#10233c" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="FST" />
+  <meta name="apple-mobile-web-app-title" content="ForgeOps" />
+  <script>
+    (() => {
+      let theme = 'light';
+      try {
+        theme = localStorage.getItem('forgeops-theme') === 'dark' ? 'dark' : 'light';
+      } catch (_) {
+        // Light remains the safe default if browser storage is unavailable.
+      }
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.colorScheme = theme;
+      document.querySelector('#themeColorMeta')?.setAttribute('content', theme === 'dark' ? '#0b1420' : '#10233c');
+    })();
+  </script>
   <link rel="manifest" href="/static/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.8.12" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.8.12-phase1" />
+  <link rel="stylesheet" href="/static/shell.css?v=0.8.12-phase1" />
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <defs>
+      <symbol id="icon-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5v8a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></symbol>
+      <symbol id="icon-clients" viewBox="0 0 24 24"><path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7.5-1a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM2 21v-2a6 6 0 0 1 12 0v2Zm12.5 0v-2a7.5 7.5 0 0 0-2.1-5.2A5 5 0 0 1 22 16v5z" /></symbol>
+      <symbol id="icon-projects" viewBox="0 0 24 24"><path d="M3 6.5h7l2-2h9v15H3z" /></symbol>
+      <symbol id="icon-ledger" viewBox="0 0 24 24"><path d="M3 6h18v14H3zM3 9h18M16 14h2" /></symbol>
+      <symbol id="icon-reports" viewBox="0 0 24 24"><path d="M4 20V10h4v10zm6 0V4h4v16zm6 0v-7h4v7z" /></symbol>
+      <symbol id="icon-quote" viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5zm10 0v5h4M8 12h8M8 16h6" /></symbol>
+      <symbol id="icon-invoice" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zm3 6h6m-6 4h6" /></symbol>
+      <symbol id="icon-labor" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9Zm0 4v5l3 2" /></symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4 2-1-2-4-2 .5-1.5-1L16 4h-4l-.5 2.5-1.5 1L8 7 6 11l2 1v2l-2 1 2 4 2-.5 1.5 1L12 22h4l.5-2.5 1.5-1 2 .5 2-4-2-1z" /></symbol>
+      <symbol id="icon-user" viewBox="0 0 24 24"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm-8 9a8 8 0 0 1 16 0" /></symbol>
+      <symbol id="icon-theme" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" /></symbol>
+      <symbol id="icon-logout" viewBox="0 0 24 24"><path d="M10 4H4v16h6m5-4 4-4-4-4m4 4H9" /></symbol>
+      <symbol id="icon-tools" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="icon-expense" viewBox="0 0 24 24"><path d="M4 7h16v12H4zm0 4h16m-5 4h2" /></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+    </defs>
+  </svg>
+
   <div id="setupView" class="login-wrap hidden">
     <div class="login-card setup-card">
-      <div class="brand-mark">FS</div>
-      <h1>Forged Systems Tracking</h1>
-      <p>Initial setup: create the first admin account or restore a full backup.</p>
+      <div class="auth-card-header">
+        <div class="brand-mark" aria-label="ForgeOps">FO</div>
+        <button class="theme-toggle auth-theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme">
+          <svg class="icon"><use href="#icon-theme" /></svg><span data-theme-label>Dark theme</span>
+        </button>
+      </div>
+      <p class="auth-eyebrow">Welcome to ForgeOps</p>
+      <h1>Set up your workspace</h1>
+      <p>Run your technical-services work from client intake through payment and reporting.</p>
       <div class="setup-tabs" role="tablist" aria-label="Initial setup options">
-        <button id="showCreateSetup" class="tab active" type="button">Create Account</button>
-        <button id="showRestoreSetup" class="tab" type="button">Restore Backup</button>
+        <button id="showCreateSetup" class="tab active" type="button" role="tab" aria-selected="true">Create Account</button>
+        <button id="showRestoreSetup" class="tab" type="button" role="tab" aria-selected="false">Restore Backup</button>
       </div>
       <form id="setupAccountForm" class="setup-pane" autocomplete="on">
-        <label>Full Name <input id="setupFullName" name="full_name" required value="Administrator" /></label>
-        <label>Email <input id="setupEmail" name="email" type="email" required placeholder="you@example.com" /></label>
-        <label>Password <input id="setupPassword" name="password" type="password" required minlength="8" /></label>
+        <label>Full Name <input id="setupFullName" name="full_name" required value="Administrator" autocomplete="name" /></label>
+        <label>Email <input id="setupEmail" name="email" type="email" required placeholder="you@example.com" autocomplete="email" /></label>
+        <label>Password <input id="setupPassword" name="password" type="password" required minlength="8" autocomplete="new-password" /></label>
         <button class="primary" type="submit">Create Admin Account</button>
       </form>
       <form id="setupRestoreForm" class="setup-pane hidden" enctype="multipart/form-data">
-        <p class="muted">Restore is available here only before the first account exists. Restoring brings back the database and uploaded files from the backup.</p>
+        <p class="muted">Restore is available before the first account exists. It brings back the database and uploaded files from a ForgeOps backup.</p>
         <label>Backup ZIP <input id="setupRestoreFile" name="file" type="file" accept=".zip" required /></label>
         <button class="primary" type="submit">Restore From Backup</button>
       </form>
@@ -39,52 +80,128 @@
 
   <div id="loginView" class="login-wrap hidden">
     <form id="loginForm" class="login-card" autocomplete="on">
-      <div class="brand-mark">FS</div>
-      <h1>Forged Systems Tracking</h1>
-      <p>Internal client, project, quote, invoice, labor, receipt, and ledger tracking.</p>
-      <label>Email <input id="email" type="email" required /></label>
-      <label>Password <input id="password" type="password" required /></label>
-      <label class="check-row"><input id="rememberMe" type="checkbox" /> Remember me on this device</label>
-      <button class="primary" type="submit">Sign in</button>
+      <div class="auth-card-header">
+        <div class="brand-mark" aria-label="ForgeOps">FO</div>
+        <button class="theme-toggle auth-theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme">
+          <svg class="icon"><use href="#icon-theme" /></svg><span data-theme-label>Dark theme</span>
+        </button>
+      </div>
+      <p class="auth-eyebrow">ForgeOps</p>
+      <h1>Welcome back</h1>
+      <p>Keep clients, work, finances, and reporting in one practical workspace.</p>
+      <label>Email <input id="email" type="email" required autocomplete="email" /></label>
+      <label>Password <input id="password" type="password" required autocomplete="current-password" /></label>
+      <label class="check-row"><input id="rememberMe" type="checkbox" /> Remember Me</label>
+      <button class="primary" type="submit">Sign In</button>
       <div id="loginError" class="error" role="alert"></div>
     </form>
   </div>
 
   <div id="appView" class="app-shell hidden">
-    <div class="mobile-shell-bar" role="banner">
-      <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Open navigation" aria-controls="appSidebar" aria-expanded="false">☰</button>
-      <div class="mobile-title"><span>FS</span><strong>Forged Systems Tracking</strong></div>
-    </div>
-    <div id="sidebarScrim" class="sidebar-scrim" aria-hidden="true"></div>
-    <aside id="appSidebar" class="sidebar">
-      <div class="logo"><span>FS</span><strong>Forged Systems Tracking</strong></div>
-      <nav aria-label="Main navigation">
-        <button data-page="dashboard" class="nav active">Dashboard</button>
-        <button data-page="clients" class="nav">Clients</button>
-        <button data-page="projects" class="nav">Projects</button>
-        <button data-page="quotes" class="nav">Quotes</button>
-        <button data-page="invoices" class="nav">Invoices</button>
-        <button data-page="ledger" class="nav">Ledger</button>
-        <button data-page="labor" class="nav">Labor</button>
-        <button data-page="reports" class="nav">Reports</button>
-        <button data-page="admin" class="nav">Backup & Restore</button>
+    <aside id="appSidebar" class="sidebar" aria-label="ForgeOps navigation">
+      <div class="sidebar-brand" aria-label="ForgeOps">
+        <span class="sidebar-brand-mark" aria-hidden="true">FO</span>
+        <span><strong>ForgeOps</strong><small>Business operations</small></span>
+      </div>
+      <button id="desktopCreateBtn" class="sidebar-create" type="button" aria-haspopup="dialog" aria-controls="quickCreateSheet">
+        <svg class="icon"><use href="#icon-plus" /></svg><span>New</span>
+      </button>
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <div class="nav-group">
+          <p class="nav-group-label">Primary</p>
+          <button data-page="dashboard" class="nav active" type="button" aria-current="page"><svg class="icon"><use href="#icon-home" /></svg><span>Home</span></button>
+          <button data-page="clients" class="nav" type="button"><svg class="icon"><use href="#icon-clients" /></svg><span>Clients</span></button>
+          <button data-page="projects" class="nav" type="button"><svg class="icon"><use href="#icon-projects" /></svg><span>Projects</span></button>
+          <button data-page="ledger" class="nav" type="button"><svg class="icon"><use href="#icon-ledger" /></svg><span>Ledger</span></button>
+          <button data-page="reports" class="nav" type="button"><svg class="icon"><use href="#icon-reports" /></svg><span>Reports</span></button>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-label">Records</p>
+          <button data-page="quotes" class="nav" type="button"><svg class="icon"><use href="#icon-quote" /></svg><span>Quotes</span></button>
+          <button data-page="invoices" class="nav" type="button"><svg class="icon"><use href="#icon-invoice" /></svg><span>Invoices</span></button>
+          <button data-page="labor" class="nav" type="button"><svg class="icon"><use href="#icon-labor" /></svg><span>Labor</span></button>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-label">Application</p>
+          <button data-page="admin" class="nav" type="button"><svg class="icon"><use href="#icon-settings" /></svg><span>Settings &amp; Backup</span></button>
+        </div>
       </nav>
       <div class="sidebar-user-actions">
-        <button id="userBtn" class="ghost" type="button">User</button>
-        <button id="logoutBtn" class="ghost" type="button">Log out</button>
+        <button class="sidebar-account-action theme-toggle" type="button" data-theme-toggle><svg class="icon"><use href="#icon-theme" /></svg><span data-theme-label>Dark theme</span></button>
+        <button id="userBtn" class="sidebar-account-action" type="button"><svg class="icon"><use href="#icon-user" /></svg><span>User Profile</span></button>
+        <button id="logoutBtn" class="sidebar-account-action" type="button"><svg class="icon"><use href="#icon-logout" /></svg><span>Log Out</span></button>
       </div>
     </aside>
+
+    <header class="mobile-topbar" role="banner">
+      <h1 id="mobilePageTitle">Home</h1>
+      <button id="mobileToolsBtn" class="mobile-tools-btn" type="button" aria-label="Open user and tools menu" aria-controls="mobileToolsMenu" aria-expanded="false">
+        <svg class="icon"><use href="#icon-tools" /></svg>
+      </button>
+    </header>
+
     <main class="content">
-      <header class="topbar">
+      <header class="topbar page-header">
         <div>
-          <h1 id="pageTitle">Dashboard</h1>
-          <p id="pageSubtitle">A safe visual MVP with full-data backups from day one.</p>
+          <h1 id="pageTitle">Home</h1>
+          <p id="pageSubtitle">Internal tracking overview for open work, invoices, and labor.</p>
         </div>
       </header>
       <section id="messages" aria-live="polite"></section>
       <section id="pageRoot"></section>
     </main>
+
+    <nav class="mobile-bottom-nav" aria-label="Primary navigation">
+      <button data-page="dashboard" class="nav mobile-nav-item active" type="button" aria-current="page"><svg class="icon"><use href="#icon-home" /></svg><span>Home</span></button>
+      <button data-page="clients" class="nav mobile-nav-item" type="button"><svg class="icon"><use href="#icon-clients" /></svg><span>Clients</span></button>
+      <button id="mobileCreateBtn" class="mobile-create-control" type="button" aria-label="Create new" aria-haspopup="dialog" aria-controls="quickCreateSheet"><span><svg class="icon"><use href="#icon-plus" /></svg></span><small>New</small></button>
+      <button data-page="projects" class="nav mobile-nav-item" type="button"><svg class="icon"><use href="#icon-projects" /></svg><span>Projects</span></button>
+      <button data-page="ledger" class="nav mobile-nav-item" type="button"><svg class="icon"><use href="#icon-ledger" /></svg><span>Ledger</span></button>
+      <button data-page="reports" class="nav mobile-nav-item" type="button"><svg class="icon"><use href="#icon-reports" /></svg><span>Reports</span></button>
+    </nav>
   </div>
-  <script type="module" src="/static/js/app.js?v=0.8.12"></script>
+
+  <div id="mobileToolsMenu" class="shell-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="mobileToolsTitle">
+    <div class="shell-dialog-backdrop" data-close-shell="mobileToolsMenu"></div>
+    <section class="shell-sheet tools-sheet" tabindex="-1">
+      <header class="shell-sheet-header">
+        <div><p class="sheet-eyebrow">ForgeOps</p><h2 id="mobileToolsTitle">User &amp; Tools</h2></div>
+        <button class="sheet-close" type="button" data-close-shell="mobileToolsMenu" aria-label="Close user and tools menu"><svg class="icon"><use href="#icon-close" /></svg></button>
+      </header>
+      <div class="tools-menu-group">
+        <p>Records</p>
+        <button data-page="quotes" class="nav tools-menu-item" type="button"><svg class="icon"><use href="#icon-quote" /></svg><span>Quotes</span></button>
+        <button data-page="invoices" class="nav tools-menu-item" type="button"><svg class="icon"><use href="#icon-invoice" /></svg><span>Invoices</span></button>
+        <button data-page="labor" class="nav tools-menu-item" type="button"><svg class="icon"><use href="#icon-labor" /></svg><span>Labor</span></button>
+      </div>
+      <div class="tools-menu-group">
+        <p>Application</p>
+        <button data-page="admin" class="nav tools-menu-item" type="button"><svg class="icon"><use href="#icon-settings" /></svg><span>Settings &amp; Backup</span></button>
+        <button id="mobileUserBtn" class="tools-menu-item" type="button"><svg class="icon"><use href="#icon-user" /></svg><span>User Profile</span></button>
+        <button class="tools-menu-item theme-toggle" type="button" data-theme-toggle><svg class="icon"><use href="#icon-theme" /></svg><span data-theme-label>Dark theme</span></button>
+        <button id="mobileLogoutBtn" class="tools-menu-item tools-danger" type="button"><svg class="icon"><use href="#icon-logout" /></svg><span>Log Out</span></button>
+      </div>
+    </section>
+  </div>
+
+  <div id="quickCreateSheet" class="shell-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="quickCreateTitle">
+    <div class="shell-dialog-backdrop" data-close-shell="quickCreateSheet"></div>
+    <section class="shell-sheet quick-create-sheet" tabindex="-1">
+      <header class="shell-sheet-header">
+        <div><p class="sheet-eyebrow">Shortcuts</p><h2 id="quickCreateTitle">Create New</h2></div>
+        <button class="sheet-close" type="button" data-close-shell="quickCreateSheet" aria-label="Close create menu"><svg class="icon"><use href="#icon-close" /></svg></button>
+      </header>
+      <div class="quick-create-grid">
+        <button type="button" data-quick-create="client"><svg class="icon"><use href="#icon-clients" /></svg><span>New Client</span></button>
+        <button type="button" data-quick-create="project"><svg class="icon"><use href="#icon-projects" /></svg><span>New Project</span></button>
+        <button type="button" data-quick-create="labor"><svg class="icon"><use href="#icon-labor" /></svg><span>Add Labor</span></button>
+        <button type="button" data-quick-create="expense"><svg class="icon"><use href="#icon-expense" /></svg><span>Add Expense</span></button>
+        <button type="button" data-quick-create="quote"><svg class="icon"><use href="#icon-quote" /></svg><span>New Quote</span></button>
+        <button type="button" data-quick-create="invoice"><svg class="icon"><use href="#icon-invoice" /></svg><span>New Invoice</span></button>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="/static/js/app.js?v=0.8.12-phase1"></script>
 </body>
 </html>
