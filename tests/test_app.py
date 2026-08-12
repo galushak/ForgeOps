@@ -55,6 +55,31 @@ def test_frontend_shell_characterization():
     assert "env(safe-area-inset-bottom" in shell_css
 
 
+def test_frontend_phase_2_home_clients_projects_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    phase2_css = (static_dir / "phase2.css").read_text(encoding="utf-8")
+    service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
+
+    assert "/static/phase2.css?v=0.8.12-phase2" in html
+    assert "forgeops-phase-2-home-clients-projects-v1" in service_worker
+    assert "async function renderProjectDetail" in javascript
+    assert "async function renderClientDetail" in javascript
+    assert "Needs Attention" in javascript
+    assert "Estimated Take-Home" in javascript
+    assert "Sales Tax Safety Hold" in javascript
+    assert "/api/reports/money-flow?start_date=" in javascript
+    assert "openScopedActionSheet" in javascript
+    assert "data-client-tab" in javascript
+    assert "data-project-tab" in javascript
+    assert "projectClientFilter" in javascript
+    assert "adaptiveRecordList" in javascript
+    assert ".record-list-head" in phase2_css
+    assert ".scoped-action-sheet" in phase2_css
+    assert "@media (max-width: 760px)" in phase2_css
+
+
 def test_health(client):
     response = client.get("/healthz")
     assert response.status_code == 200

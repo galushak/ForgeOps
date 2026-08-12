@@ -1,4 +1,4 @@
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, projectStatusFilter: 'active', quoteStatusFilter: 'all', quoteClientFilter: 'all', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -418,7 +418,7 @@ function invoiceCreditRowHtml(item={}) {
   </div>`;
 }
 
-function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invoiceNumberAttrs='', scopedClientId='', clientLabel='', settings={}, formId='invoiceForm', clientSelectId='invoiceClient', projectSelectId='invoiceProject', quoteSelectId='invoiceQuote'}) {
+function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invoiceNumberAttrs='', scopedClientId='', scopedProjectId='', clientLabel='', settings={}, formId='invoiceForm', clientSelectId='invoiceClient', projectSelectId='invoiceProject', quoteSelectId='invoiceQuote'}) {
   const companyName = settings.company_name || 'Forged Systems LLC';
   const salesTaxRate = percentSetting(settings.sales_tax_rate ?? '0.07', 0.07);
   const clientField = scopedClientId
@@ -439,8 +439,8 @@ function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invo
         <label>From<input readonly value="${escapeHtml(companyName)}"></label>
         <label>Invoice #<input name="invoice_number" required${invoiceNumberAttrs} value="${escapeHtml(generatedInvoiceNumber)}"></label>
         ${clientField}
-        <label>Related Quote<select name="quote_id" id="${quoteSelectId}">${quoteOptions(editing?.quote_id, projectClientId, editing?.project_id)}</select></label>
-        <label>Project<select name="project_id" id="${projectSelectId}">${projectOptions(editing?.project_id, projectClientId)}</select></label>
+        <label>Related Quote<select name="quote_id" id="${quoteSelectId}">${quoteOptions(editing?.quote_id, projectClientId, editing?.project_id || scopedProjectId)}</select></label>
+        <label>Project<select name="project_id" id="${projectSelectId}">${projectOptions(editing?.project_id || scopedProjectId, projectClientId)}</select></label>
         <label>Status<select name="status"><option value="draft">Draft</option><option value="sent">Sent</option><option value="partially_paid">Partially Paid</option><option value="paid">Paid</option><option value="void">Void</option><option value="overdue">Overdue</option></select></label>
         <label>Invoice Date<input name="invoice_date" type="date" required value="${escapeHtml(editing?.invoice_date || todayIso())}"></label>
         <label>Due Date<input name="due_date" type="date" value="${escapeHtml(editing?.due_date)}"></label>
@@ -1007,7 +1007,7 @@ function addressOptions(addresses, selected='') {
   return `<option value="">Select saved address...</option>${addresses.map(a => `<option value="${escapeHtml(a.address)}" ${String(selected)===String(a.address)?'selected':''}>${escapeHtml(a.label)} — ${escapeHtml(a.address)}</option>`).join('')}<option value="__new__">+ Add new address</option>`;
 }
 async function loadPage(page) {
-  state.page = page; state.editing = null; state.clientDetailId = null;
+  state.page = page; state.editing = null; state.clientDetailId = null; state.projectDetailId = null;
   root.innerHTML = '<div class="panel"><p class="muted">Loading...</p></div>';
   updateActiveNavigation(page);
   document.querySelector('#pageTitle').textContent = titles[page][0];
@@ -1279,8 +1279,8 @@ function attachRowActions() {
 }
 
 function attachProjectRowClicks() {
-  root.querySelectorAll('.projects-table .project-record-row[data-project-id]').forEach(row => {
-    const open = () => editRecord('project', Number(row.dataset.projectId));
+  root.querySelectorAll('.project-record-list [data-project-id]').forEach(row => {
+    const open = () => renderProjectDetail(Number(row.dataset.projectId));
     row.addEventListener('click', event => {
       if (event.target.closest('button, a, input, select, textarea')) return;
       open();
@@ -1364,9 +1364,14 @@ async function deleteRecord(type, id) {
     const paths = {client:`/api/clients/${id}`, project:`/api/projects/${id}`, quote:`/api/quotes/${id}`, invoice:`/api/invoices/${id}`, ledger:`/api/ledger/${id}`, labor:`/api/labor/${id}`, receipt:`/api/receipts/${id}`};
     const clientId = state.clientDetailId;
     const clientTab = state.clientDetailTab;
+    const projectId = state.projectDetailId;
+    const projectTab = state.projectDetailTab;
     await api(paths[type], { method:'DELETE' });
     show(`${names[type]} deleted`);
-    if (clientId && type !== 'client') {
+    if (projectId && type !== 'project') {
+      const typeMap = { quote: 'quotes', invoice: 'invoices', ledger: 'ledger', labor: 'labor', receipt: 'overview' };
+      await renderProjectDetail(Number(projectId), typeMap[type] || projectTab || 'overview');
+    } else if (clientId && type !== 'client') {
       const typeMap = { project: 'projects', quote: 'quotes', invoice: 'invoices', ledger: 'ledger', labor: 'labor', receipt: 'receipts' };
       await renderClientDetail(Number(clientId), typeMap[type] || clientTab || 'overview');
     } else {
@@ -1376,6 +1381,15 @@ async function deleteRecord(type, id) {
 }
 async function editRecord(type, id) {
   state.editing = { type, id };
+  if (state.projectDetailId) {
+    if (type === 'project') return renderProjects(id, Number(state.projectDetailId));
+    const project = state.projects.find(item => Number(item.id) === Number(state.projectDetailId));
+    const typeMap = { quote: 'quotes', invoice: 'invoices', labor: 'labor', receipt: 'receipts', ledger: 'ledger' };
+    const quickType = typeMap[type];
+    if (!project || !quickType) throw new Error(`Unknown project record type: ${type}`);
+    await openClientQuickModal(Number(project.client_id), quickType, id, {projectId:Number(project.id), returnToProject:true});
+    return;
+  }
   if (state.clientDetailId && type !== 'client') {
     const typeMap = { project: 'projects', quote: 'quotes', invoice: 'invoices', labor: 'labor', receipt: 'receipts', ledger: 'ledger' };
     const quickType = typeMap[type];
@@ -1393,102 +1407,173 @@ async function editRecord(type, id) {
   throw new Error(`Unknown record type: ${type}`);
 }
 
+function adaptiveRecordList(headers, rows, empty='No records yet.', className='') {
+  if (!rows.length) return `<div class="record-empty"><strong>Nothing here yet.</strong><span>${escapeHtml(empty)}</span></div>`;
+  const columns = headers.map(() => 'minmax(0, 1fr)').join(' ');
+  const header = headers.map(h => `<span>${escapeHtml(h)}</span>`).join('');
+  const body = rows.map(row => `<article class="record-row ${row.className || ''}" ${row.attrs || ''} style="--record-columns:${columns}">${row.cells.map((cell, index) => `<div class="record-cell" data-label="${escapeHtml(headers[index])}">${cell ?? ''}</div>`).join('')}</article>`).join('');
+  return `<div class="record-list ${className}"><div class="record-list-head" style="--record-columns:${columns}">${header}</div>${body}</div>`;
+}
 
-async function renderClients(editId=null) {
+function attachRecordOpen(selector, callback) {
+  root.querySelectorAll(selector).forEach(row => {
+    const open = () => callback(row);
+    row.addEventListener('click', event => {
+      if (event.target.closest('button, a, input, select, textarea')) return;
+      open();
+    });
+    row.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (event.target.closest('button, a, input, select, textarea')) return;
+      event.preventDefault();
+      open();
+    });
+  });
+}
+
+function contactEmail(value) {
+  return value ? `<a href="mailto:${escapeHtml(value)}">${escapeHtml(value)}</a>` : '<span class="muted">No email</span>';
+}
+
+function contactPhone(value) {
+  const href = String(value || '').replace(/[^+\d]/g, '');
+  return value ? `<a href="tel:${escapeHtml(href)}">${escapeHtml(value)}</a>` : '<span class="muted">No phone</span>';
+}
+
+function detailTabButton(scope, current, tab, label) {
+  return `<button class="tab ${current === tab ? 'active' : ''}" type="button" role="tab" aria-selected="${current === tab}" data-${scope}-tab="${tab}">${label}</button>`;
+}
+
+function setInlineFormError(form, error) {
+  const target = form.querySelector('[data-form-error]');
+  if (!target) return;
+  target.textContent = error?.message || 'Unable to save this record.';
+  target.classList.remove('hidden');
+  target.focus();
+}
+
+function openScopedActionSheet({eyebrow='Add to record', title, subtitle='', actions=[]}) {
+  document.querySelector('#scopedActionSheet')?.remove();
+  const returnFocus = document.activeElement;
+  const wrapper = document.createElement('div');
+  wrapper.id = 'scopedActionSheet';
+  wrapper.className = 'modal-backdrop scoped-action-backdrop';
+  wrapper.setAttribute('role', 'dialog');
+  wrapper.setAttribute('aria-modal', 'true');
+  wrapper.setAttribute('aria-labelledby', 'scopedActionTitle');
+  wrapper.innerHTML = `<section class="scoped-action-sheet"><header><div><p class="sheet-eyebrow">${escapeHtml(eyebrow)}</p><h2 id="scopedActionTitle">${escapeHtml(title)}</h2>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}</div><button class="sheet-close" type="button" data-scoped-close aria-label="Close add menu">×</button></header><div class="scoped-action-grid">${actions.map((action, index) => `<button type="button" data-scoped-action="${index}"><strong>${escapeHtml(action.label)}</strong><span>${escapeHtml(action.description || '')}</span></button>`).join('')}</div></section>`;
+  const close = () => {
+    document.removeEventListener('keydown', onKeydown);
+    wrapper.remove();
+    returnFocus?.focus?.();
+  };
+  const onKeydown = event => { if (event.key === 'Escape') close(); };
+  wrapper.querySelector('[data-scoped-close]').onclick = close;
+  wrapper.addEventListener('click', event => { if (event.target === wrapper) close(); });
+  wrapper.querySelectorAll('[data-scoped-action]').forEach(button => {
+    button.onclick = () => {
+      const action = actions[Number(button.dataset.scopedAction)];
+      close();
+      Promise.resolve(action.run()).catch(err => alert(err.message || 'Unable to open that form.'));
+    };
+  });
+  document.addEventListener('keydown', onKeydown);
+  document.body.appendChild(wrapper);
+  setTimeout(() => wrapper.querySelector('[data-scoped-action]')?.focus(), 0);
+}
+
+
+async function renderClients(editId=null, returnClientId=null) {
   const data = await api('/api/clients?page_size=100');
-  const editing = editId ? data.items.find(c => c.id === editId) : null;
+  const clients = [...(data.items || [])].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, {sensitivity:'base'}));
+  const editing = editId ? clients.find(c => c.id === editId) : null;
   const formTitle = editing ? 'Edit Client' : 'Add Client';
   const hasSeparateBilling = Boolean(editing?.billing_address && editing?.billing_address !== editing?.site_address);
-  const clientRows = data.items.map(c => [
-    `<strong>${escapeHtml(c.name)}</strong>`,
-    escapeHtml(c.contact_name),
-    escapeHtml(c.email),
-    escapeHtml(c.phone),
-    escapeHtml(c.site_address),
-    `<span class="status ${c.is_active ? '' : 'muted-status'}">${c.is_active ? 'Active' : 'Inactive'}</span>`,
-    rowActions('client', c.id),
-  ]);
+  const clientRows = clients.map(c => ({
+    attrs: `role="button" tabindex="0" data-client-id="${Number(c.id)}" data-active="${c.is_active ? 'active' : 'inactive'}" data-search="${escapeHtml([c.name,c.contact_name,c.email,c.phone,c.site_address,c.billing_address].join(' ').toLowerCase())}"`,
+    cells: [
+      `<div class="record-primary"><strong>${escapeHtml(c.name)}</strong><span>${escapeHtml(c.site_address || 'No primary site')}</span></div>`,
+      `<div class="record-contact"><span>${escapeHtml(c.contact_name || 'No contact')}</span>${contactEmail(c.email)}${contactPhone(c.phone)}</div>`,
+      `<span class="status ${c.is_active ? '' : 'muted-status'}">${c.is_active ? 'Active' : 'Inactive'}</span>`,
+      rowActions('client', c.id),
+    ],
+  }));
 
-  root.innerHTML = `<div class="page-actions"><div class="search-row"><label class="search-field">Search Clients<input id="clientSearch" type="search" placeholder="Search name, contact, email, phone, or address..."></label><label class="filter-field">Status<select id="clientStatusFilter"><option value="all">All</option><option value="active" selected>Active</option><option value="inactive">Inactive</option></select></label></div><button class="primary" id="openClientModal" type="button">+ Add Client</button></div>
-  <div class="panel list-panel"><div class="table-wrap client-table"><table id="clientsTable"><thead><tr>${['Name','Contact','Email','Phone','Primary Site','Status','Actions'].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${clientRows.length ? clientRows.map((r, idx)=>`<tr class="clickable-row client-record-row" data-client-id="${data.items[idx].id}" data-active="${data.items[idx].is_active ? 'active' : 'inactive'}" data-search="${escapeHtml(Object.values(data.items[idx]).join(' ').toLowerCase())}">${r.map((c, cellIndex)=>`<td data-label="${['Name','Contact','Email','Phone','Primary Site','Status','Actions'][cellIndex]}">${c??''}</td>`).join('')}</tr>`).join('') : '<tr class="client-empty-row"><td colspan="7">No clients yet. Use + Add Client to create one.</td></tr>'}</tbody></table></div></div>
+  root.innerHTML = `<div class="page-actions record-page-actions"><div class="record-controls"><label class="search-field">Search Clients<input id="clientSearch" type="search" placeholder="Name, contact, email, phone, or address"></label><label class="filter-field">Status<select id="clientStatusFilter"><option value="all">All clients</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button class="ghost reset-filters" id="resetClientFilters" type="button">Reset</button><span class="result-count" id="clientResultCount" aria-live="polite"></span></div><button class="primary" id="openClientModal" type="button">+ Add Client</button></div>
+  <section class="panel list-panel record-list-panel" aria-label="Clients">${adaptiveRecordList(['Client','Contact','Status','Actions'], clientRows, 'No clients yet. Add your first client to get started.', 'client-record-list')}</section>
   <div id="clientModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="clientModalTitle"><div class="modal-card"><div class="modal-header"><div><h2 id="clientModalTitle">${formTitle}</h2><p>${editing ? 'Update this client record.' : 'Create a client record without leaving the list.'}</p></div><button class="ghost modal-close" id="closeClientModal" type="button" aria-label="Close client form">×</button></div><form id="clientForm" class="form-grid">
-    <label class="client-field client-name-field">Client Name<input name="name" required value="${escapeHtml(editing?.name)}" placeholder="Company or household name"></label><label class="client-field">Primary Contact<input name="contact_name" value="${escapeHtml(editing?.contact_name)}" placeholder="Contact name"></label>
-    <label class="client-field">Email<input name="email" type="email" value="${escapeHtml(editing?.email)}" placeholder="name@example.com"></label><label class="client-field">Phone<input name="phone" value="${escapeHtml(editing?.phone)}" placeholder="(555) 555-5555"></label>
-    <label class="client-field client-address-field">Primary Site Address<textarea name="site_address" rows="2" placeholder="Main job/site address for this client">${escapeHtml(editing?.site_address)}</textarea></label>
+    <fieldset class="form-section full"><legend>Identity &amp; contact</legend><div class="form-section-grid"><label class="client-field client-name-field">Client Name<input name="name" required value="${escapeHtml(editing?.name)}" placeholder="Company or household name"></label><label class="client-field">Primary Contact<input name="contact_name" value="${escapeHtml(editing?.contact_name)}" placeholder="Contact name"></label>
+    <label class="client-field">Email<input name="email" type="email" value="${escapeHtml(editing?.email)}" placeholder="name@example.com"></label><label class="client-field">Phone<input name="phone" value="${escapeHtml(editing?.phone)}" placeholder="(555) 555-5555"></label></div></fieldset>
+    <fieldset class="form-section full"><legend>Addresses</legend><div class="form-section-grid"><label class="client-field client-address-field">Primary Site Address<textarea name="site_address" rows="2" placeholder="Main job/site address for this client">${escapeHtml(editing?.site_address)}</textarea></label>
     <label class="check-row client-billing-toggle"><input id="separateBilling" type="checkbox" ${hasSeparateBilling ? 'checked' : ''}> Separate billing address</label>
-    <label id="billingAddressField" class="full client-field client-address-field ${hasSeparateBilling ? '' : 'hidden'}">Billing Address<textarea name="billing_address" rows="3" placeholder="Billing address">${escapeHtml(editing?.billing_address)}</textarea></label>
-    <label class="check-row client-active-toggle"><input name="is_active" type="checkbox" ${editing?.is_active !== false ? 'checked' : ''}> Active Client</label>
+    <label id="billingAddressField" class="full client-field client-address-field ${hasSeparateBilling ? '' : 'hidden'}">Billing Address<textarea name="billing_address" rows="3" placeholder="Billing address">${escapeHtml(editing?.billing_address)}</textarea></label></div></fieldset>
+    <fieldset class="form-section full"><legend>Internal details</legend><div class="form-section-grid"><label class="full client-field">Notes<textarea name="notes" rows="3" placeholder="Internal notes">${escapeHtml(editing?.notes)}</textarea></label><label class="check-row client-active-toggle"><input name="is_active" type="checkbox" ${editing?.is_active !== false ? 'checked' : ''}> Active Client</label></div></fieldset>
+    <p class="form-error hidden full" data-form-error role="alert" tabindex="-1"></p>
     <div class="form-actions client-modal-actions"><button class="ghost" type="button" id="cancelClientModal">Cancel</button><button class="primary" type="submit">${editing ? 'Update Client' : 'Save Client'}</button></div>
   </form></div></div>`;
 
   const modal = document.querySelector('#clientModal');
+  const clientFormEl = document.querySelector('#clientForm');
   const separateBillingToggle = document.querySelector('#separateBilling');
   const billingAddressField = document.querySelector('#billingAddressField');
-  const openModal = () => { modal.classList.remove('hidden'); setTimeout(() => clientForm.querySelector('input[name="name"]')?.focus(), 0); };
-  const closeModal = () => renderClients();
-  openClientModal.onclick = () => renderClients();
-  openClientModal.onclick = openModal;
-  closeClientModal.onclick = closeModal;
-  cancelClientModal.onclick = closeModal;
+  const openModal = () => { modal.classList.remove('hidden'); setTimeout(() => clientFormEl.querySelector('input[name="name"]')?.focus(), 0); };
+  const closeModal = () => returnClientId ? renderClientDetail(returnClientId) : renderClients();
+  document.querySelector('#openClientModal').onclick = openModal;
+  document.querySelector('#closeClientModal').onclick = closeModal;
+  document.querySelector('#cancelClientModal').onclick = closeModal;
   modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
   document.addEventListener('keydown', function escClose(e) { if (e.key === 'Escape' && !modal.classList.contains('hidden')) { document.removeEventListener('keydown', escClose); closeModal(); } });
   separateBillingToggle.onchange = () => {
     billingAddressField.classList.toggle('hidden', !separateBillingToggle.checked);
-    if (!separateBillingToggle.checked) clientForm.elements.billing_address.value = clientForm.elements.site_address.value;
+    if (!separateBillingToggle.checked) clientFormEl.elements.billing_address.value = clientFormEl.elements.site_address.value;
   };
   if (editing) openModal();
 
   const applyClientFilters = () => {
     const q = clientSearch.value.trim().toLowerCase();
     const status = clientStatusFilter.value;
-    const rows = [...clientsTable.querySelectorAll('tbody tr')];
+    const rows = [...root.querySelectorAll('.client-record-list .record-row')];
     let shown = 0;
     for (const row of rows) {
-      if (!row.dataset.search) continue;
       const matchesSearch = !q || row.dataset.search.includes(q);
       const matchesStatus = status === 'all' || row.dataset.active === status;
       const showRow = matchesSearch && matchesStatus;
       row.classList.toggle('hidden', !showRow);
       if (showRow) shown += 1;
     }
-    let empty = clientsTable.querySelector('[data-empty-row="true"]');
-    if (!shown && data.items.length) {
+    let empty = root.querySelector('[data-client-filter-empty]');
+    if (!shown && clients.length) {
       if (!empty) {
-        empty = document.createElement('tr');
-        empty.dataset.emptyRow = 'true';
-        empty.innerHTML = '<td colspan="7">No clients match that search/filter.</td>';
-        clientsTable.querySelector('tbody').appendChild(empty);
+        empty = document.createElement('div');
+        empty.dataset.clientFilterEmpty = 'true';
+        empty.className = 'record-empty';
+        empty.innerHTML = '<strong>No matches</strong><span>Try a different search or reset the filters.</span>';
+        root.querySelector('.client-record-list')?.appendChild(empty);
       }
       empty.classList.remove('hidden');
     } else if (empty) {
       empty.classList.add('hidden');
     }
+    clientResultCount.textContent = `${shown} of ${clients.length} client${clients.length === 1 ? '' : 's'}`;
   };
+  clientStatusFilter.value = state.clientStatusFilter || 'all';
   clientSearch.addEventListener('input', applyClientFilters);
-  clientStatusFilter.addEventListener('change', applyClientFilters);
+  clientStatusFilter.addEventListener('change', () => { state.clientStatusFilter = clientStatusFilter.value; applyClientFilters(); });
+  resetClientFilters.onclick = () => { clientSearch.value = ''; clientStatusFilter.value = 'all'; state.clientStatusFilter = 'all'; applyClientFilters(); clientSearch.focus(); };
   applyClientFilters();
-  root.querySelectorAll('[data-client-id]').forEach(row => {
-    row.addEventListener('click', event => {
-      if (event.target.closest('button, a, input, select, textarea')) return;
-      renderClientDetail(Number(row.dataset.clientId));
-    });
-    row.addEventListener('keydown', event => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      if (event.target.closest('button, a, input, select, textarea')) return;
-      event.preventDefault();
-      renderClientDetail(Number(row.dataset.clientId));
-    });
-  });
+  attachRecordOpen('.client-record-list [data-client-id]', row => renderClientDetail(Number(row.dataset.clientId)));
 
-  clientForm.onsubmit = async e => {
+  clientFormEl.onsubmit = async e => {
     e.preventDefault();
-    if (!separateBillingToggle.checked) clientForm.elements.billing_address.value = clientForm.elements.site_address.value;
-    const payload = clean(formData(clientForm)); payload.is_active = formBool(clientForm, 'is_active');
+    if (!separateBillingToggle.checked) clientFormEl.elements.billing_address.value = clientFormEl.elements.site_address.value;
+    const payload = clean(formData(clientFormEl)); payload.is_active = formBool(clientFormEl, 'is_active');
     try {
       if (editing) await api(`/api/clients/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)});
       else await api('/api/clients', {method:'POST', body: JSON.stringify(payload)});
-      show(editing ? 'Client updated' : 'Client saved'); await renderClients();
-    } catch (err) { alert(err.message); }
+      show(editing ? 'Client updated' : 'Client saved');
+      await preloadLookups();
+      if (returnClientId) await renderClientDetail(returnClientId); else await renderClients();
+    } catch (err) { setInlineFormError(clientFormEl, err); }
   };
   attachRowActions();
 }
@@ -1521,7 +1606,7 @@ function dashboardTable(headers, rows, empty='No records yet.', rowAttrs=[]) {
     : `<tr class="dashboard-empty-row"><td colspan="${headers.length}">${empty}</td></tr>`;
   return `<div class="table-wrap dashboard-table"><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
-async function renderClientDetail(clientId, tab=state.clientDetailTab || 'overview') {
+async function renderClientDetailLegacy(clientId, tab=state.clientDetailTab || 'overview') {
   state.page = 'clients';
   state.clientDetailId = clientId;
   state.clientDetailTab = tab;
@@ -1596,34 +1681,120 @@ async function renderClientDetail(clientId, tab=state.clientDetailTab || 'overvi
   attachRowActions();
 }
 
-async function renderProjects(editId=null) {
+async function renderClientDetail(clientId, tab=state.clientDetailTab || 'overview') {
+  state.page = 'clients';
+  state.clientDetailId = clientId;
+  state.projectDetailId = null;
+  state.clientDetailTab = tab;
+  state.editing = null;
+  await preloadLookups();
+  const client = state.clients.find(c => Number(c.id) === Number(clientId)) || await api(`/api/clients/${clientId}`);
+  const [projectsData, quotesData, invoicesData, laborData, ledgerData, receiptsData] = await Promise.all([
+    api(`/api/projects?client_id=${clientId}&page_size=100`),
+    api(`/api/quotes?client_id=${clientId}&page_size=100`),
+    api(`/api/invoices?client_id=${clientId}&page_size=100`),
+    api(`/api/labor?client_id=${clientId}&page_size=100`),
+    api('/api/ledger?page_size=100'),
+    api('/api/receipts?page_size=100'),
+  ]);
+  const projects = projectsData.items || [];
+  const quotes = quotesData.items || [];
+  const invoices = invoicesData.items || [];
+  const labor = laborData.items || [];
+  const ledger = (ledgerData.items || []).filter(entry => Number(entry.client_id) === Number(clientId) || (entry.project_id && projects.some(project => Number(project.id) === Number(entry.project_id))));
+  const receipts = clientRelatedReceipts(clientId, receiptsData.items || [], ledger);
+  const outstanding = invoices.reduce((sum, invoice) => sum + Number(invoice.balance_due || 0), 0);
+  const uninvoicedLabor = labor.filter(entry => !entry.is_invoiced).reduce((sum, entry) => sum + Number(entry.line_total || 0), 0);
+  const revenue = ledger.filter(entry => ['revenue','income'].includes(entry.kind)).reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
+  const expenses = ledger.filter(entry => ['expense','cogs'].includes(entry.kind) && !TAX_PAYMENT_CATEGORIES.has(entry.category || '')).reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
+
+  const projectRows = projects.map(project => ({attrs:`role="button" tabindex="0" data-related-type="project" data-related-id="${project.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(project.name)}</strong><span>${escapeHtml(project.site_address || 'No site address')}</span></div>`,`<span class="status">${statusLabel(project.status)}</span>`,shortDate(project.start_date),rowActions('project', project.id)]}));
+  const quoteRows = quotes.map(quote => ({attrs:`role="button" tabindex="0" data-related-type="quote" data-related-id="${quote.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(quote.quote_number)}</strong><span>${escapeHtml(quote.title)}</span></div>`,escapeHtml(projectName(quote.project_id) || 'No project'),`<span class="status">${statusLabel(quote.status)}</span>`,money(quote.total_amount),rowActions('quote', quote.id)]}));
+  const invoiceRows = invoices.map(invoice => ({attrs:`role="button" tabindex="0" data-related-type="invoice" data-related-id="${invoice.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(invoice.invoice_number)}</strong><span>${escapeHtml(invoice.title)}</span></div>`,escapeHtml(projectName(invoice.project_id) || 'No project'),`<span class="status">${statusLabel(invoice.status)}</span>`,money(invoice.balance_due),rowActions('invoice', invoice.id)]}));
+  const laborRows = labor.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="labor" data-related-id="${entry.id}"`, cells:[shortDate(entry.work_date),`<div class="record-primary"><strong>${escapeHtml(entry.service_type)}</strong><span>${escapeHtml(projectName(entry.project_id) || 'No project')}</span></div>`,`${escapeHtml(entry.hours)} hr`,money(entry.line_total),entry.is_invoiced ? '<span class="status">Invoiced</span>' : '<span class="status attention-status">Uninvoiced</span>',rowActions('labor', entry.id)]}));
+  const ledgerRows = ledger.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="ledger" data-related-id="${entry.id}"`, cells:[shortDate(entry.entry_date),`<div class="record-primary"><strong>${escapeHtml(ledgerKindLabel(entry.kind))}</strong><span>${escapeHtml(entry.category)}</span></div>`,escapeHtml(projectName(entry.project_id) || 'No project'),money(entry.amount),entry.receipt_id ? receiptPreviewButton(entry.receipt_id) : '—',rowActions('ledger', entry.id)]}));
+  const receiptRows = receipts.slice(0, 5).map(receipt => ({attrs:`role="button" tabindex="0" data-related-type="receipt" data-related-id="${receipt.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(receipt.original_filename)}</strong><span>${escapeHtml(receipt.vendor_name || 'No vendor')}</span></div>`,shortDate(receipt.receipt_date),money(receipt.total_amount),receiptPreviewButton(receipt.id),rowActions('receipt', receipt.id)]}));
+  const recent = [
+    ...invoices.map(i => ({sort:i.invoice_date, type:'invoice', id:i.id, cells:['Invoice',`<strong>${escapeHtml(i.invoice_number)}</strong>`,escapeHtml(projectName(i.project_id) || 'No project'),statusLabel(i.status),money(i.balance_due)]})),
+    ...quotes.map(q => ({sort:q.quote_date, type:'quote', id:q.id, cells:['Quote',`<strong>${escapeHtml(q.quote_number)}</strong>`,escapeHtml(projectName(q.project_id) || 'No project'),statusLabel(q.status),money(q.total_amount)]})),
+    ...labor.map(l => ({sort:l.work_date, type:'labor', id:l.id, cells:['Labor',`<strong>${escapeHtml(l.service_type)}</strong>`,escapeHtml(projectName(l.project_id) || 'No project'),shortDate(l.work_date),money(l.line_total)]})),
+  ].sort((a, b) => String(b.sort || '').localeCompare(String(a.sort || ''))).slice(0, 6).map(item => ({attrs:`role="button" tabindex="0" data-related-type="${item.type}" data-related-id="${item.id}"`, cells:item.cells}));
+
+  document.querySelector('#pageTitle').textContent = client.name;
+  document.querySelector('#pageSubtitle').textContent = 'Client hub for work, documents, labor, and ledger activity.';
+  updateActiveNavigation('clients');
+  document.querySelector('#mobilePageTitle').textContent = client.name;
+
+  const overviewHtml = `<div class="cards hub-summary-cards"><div class="card"><span>Projects</span><strong>${projects.length}</strong></div><div class="card"><span>Outstanding</span><strong>${money(outstanding)}</strong></div><div class="card"><span>Uninvoiced Labor</span><strong>${money(uninvoicedLabor)}</strong></div><div class="card"><span>Ledger Balance</span><strong>${money(revenue - expenses)}</strong></div></div>
+    <section class="panel detail-info-panel"><div class="panel-heading"><h2>Client details</h2><span class="status ${client.is_active ? '' : 'muted-status'}">${client.is_active ? 'Active' : 'Inactive'}</span></div><div class="info-grid"><div><strong>Primary contact</strong><span>${escapeHtml(client.contact_name || '—')}</span></div><div><strong>Email</strong><span>${contactEmail(client.email)}</span></div><div><strong>Phone</strong><span>${contactPhone(client.phone)}</span></div><div class="wide"><strong>Primary site</strong><span>${escapeHtml(client.site_address || '—')}</span></div><div class="wide"><strong>Billing address</strong><span>${escapeHtml(client.billing_address || '—')}</span></div>${client.notes ? `<div class="wide"><strong>Notes</strong><span>${escapeHtml(client.notes)}</span></div>` : ''}</div></section>
+    <section class="panel"><div class="panel-heading"><h2>Recent activity</h2></div>${adaptiveRecordList(['Type','Record','Project','Status / Date','Amount'], recent, 'No activity for this client yet.', 'client-related-list')}</section>
+    <section class="panel"><div class="panel-heading"><h2>Recent receipts</h2><span class="muted">${receipts.length} related</span></div>${adaptiveRecordList(['Receipt','Date','Total','File','Actions'], receiptRows, 'No receipts are related to this client yet.', 'client-related-list')}</section>`;
+  const tabs = {
+    overview: overviewHtml,
+    projects: `<section class="panel"><div class="panel-heading"><h2>Projects</h2><span class="result-count">${projects.length}</span></div>${adaptiveRecordList(['Project','Status','Start','Actions'], projectRows, 'No projects for this client yet.', 'client-related-list')}</section>`,
+    quotes: `<section class="panel"><div class="panel-heading"><h2>Quotes</h2><span class="result-count">${quotes.length}</span></div>${adaptiveRecordList(['Quote','Project','Status','Total','Actions'], quoteRows, 'No quotes for this client yet.', 'client-related-list')}</section>`,
+    invoices: `<section class="panel"><div class="panel-heading"><h2>Invoices</h2><strong>Outstanding ${money(outstanding)}</strong></div>${adaptiveRecordList(['Invoice','Project','Status','Balance','Actions'], invoiceRows, 'No invoices for this client yet.', 'client-related-list')}</section>`,
+    labor: `<section class="panel"><div class="panel-heading"><h2>Labor</h2><strong>Uninvoiced ${money(uninvoicedLabor)}</strong></div>${adaptiveRecordList(['Date','Service','Hours','Value','Billing','Actions'], laborRows, 'No labor for this client yet.', 'client-related-list')}</section>`,
+    ledger: `<section class="panel"><div class="panel-heading"><h2>Ledger</h2><strong>Balance ${money(revenue - expenses)}</strong></div>${adaptiveRecordList(['Date','Entry','Project','Amount','Receipt','Actions'], ledgerRows, 'No ledger entries for this client yet.', 'client-related-list')}</section>`,
+  };
+
+  root.innerHTML = `<div class="detail-header hub-header"><button class="ghost" id="backToClients" type="button">← Clients</button><div class="detail-title"><div class="hub-title-line"><h2>${escapeHtml(client.name)}</h2><span class="status ${client.is_active ? '' : 'muted-status'}">${client.is_active ? 'Active' : 'Inactive'}</span></div><div class="hub-contact-line"><span>${escapeHtml(client.contact_name || 'No primary contact')}</span>${client.email ? contactEmail(client.email) : ''}${client.phone ? contactPhone(client.phone) : ''}</div><p>${escapeHtml(client.site_address || 'No primary site address')}</p></div><div class="hub-header-actions"><button class="ghost" id="editClientDetail" type="button">Edit</button><button class="primary" id="addClientDetail" type="button">+ Add</button></div></div>
+    <div class="tabs hub-tabs" role="tablist" aria-label="Client sections">${detailTabButton('client', tab, 'overview','Overview')}${detailTabButton('client', tab, 'projects',`Projects (${projects.length})`)}${detailTabButton('client', tab, 'quotes',`Quotes (${quotes.length})`)}${detailTabButton('client', tab, 'invoices',`Invoices (${invoices.length})`)}${detailTabButton('client', tab, 'labor',`Labor (${labor.length})`)}${detailTabButton('client', tab, 'ledger',`Ledger (${ledger.length})`)}</div>${tabs[tab] || overviewHtml}`;
+
+  backToClients.onclick = () => loadPage('clients');
+  editClientDetail.onclick = () => renderClients(clientId, clientId);
+  addClientDetail.onclick = () => openScopedActionSheet({title:`Add to ${client.name}`, subtitle:'The client is already selected in each form.', actions:[
+    {label:'New Project', description:'Create a project for this client.', run:() => openClientQuickModal(clientId, 'projects')},
+    {label:'New Quote', description:'Start a client-scoped quote.', run:() => openClientQuickModal(clientId, 'quotes')},
+    {label:'New Invoice', description:'Start a client-scoped invoice.', run:() => openClientQuickModal(clientId, 'invoices')},
+    {label:'Add Labor', description:'Log billable work.', run:() => openClientQuickModal(clientId, 'labor')},
+    {label:'Add Expense', description:'Add a client expense.', run:() => openClientQuickModal(clientId, 'ledger', null, {ledgerKind:'expense'})},
+    {label:'Ledger Entry', description:'Add income, COGS, or an expense.', run:() => openClientQuickModal(clientId, 'ledger')},
+  ]});
+  root.querySelectorAll('[data-client-tab]').forEach(button => button.addEventListener('click', () => renderClientDetail(clientId, button.dataset.clientTab)));
+  attachRecordOpen('.client-related-list [data-related-type][data-related-id]', row => {
+    const type = row.dataset.relatedType;
+    const id = Number(row.dataset.relatedId);
+    if (type === 'project') return renderProjectDetail(id);
+    return editRecord(type, id);
+  });
+  attachRowActions();
+}
+
+async function renderProjects(editId=null, returnProjectId=null) {
   const data = await api('/api/projects?page_size=100');
   const editing = editId ? data.items.find(p => p.id === editId) : null;
   const currentClientId = editing?.client_id || '';
   const addresses = await ensureAddresses(currentClientId);
   const finishedStatuses = new Set(['completed', 'closed', 'canceled']);
-  const projectStatusFilterValue = state.projectStatusFilter || 'active';
-  const visibleProjects = data.items.filter(p => {
-    const status = String(p.status || '').toLowerCase();
-    if (projectStatusFilterValue === 'all') return true;
-    if (projectStatusFilterValue === 'finished') return finishedStatuses.has(status);
-    return !finishedStatuses.has(status);
+  const projectStatusFilterValue = state.projectStatusFilter || 'all';
+  const projectClientFilterValue = state.projectClientFilter || 'all';
+  const sortedProjects = [...(data.items || [])].sort((a, b) => {
+    const aFinished = finishedStatuses.has(String(a.status || '').toLowerCase());
+    const bFinished = finishedStatuses.has(String(b.status || '').toLowerCase());
+    return Number(aFinished) - Number(bFinished) || String(a.name || '').localeCompare(String(b.name || ''), undefined, {sensitivity:'base'});
   });
-  const rows = visibleProjects.map(p => [escapeHtml(p.name),escapeHtml(clientName(p.client_id)),`<span class="status">${statusLabel(p.status)}</span>`,escapeHtml(p.site_address),p.start_date,p.completed_date,rowActions('project', p.id)]);
-  const rowAttrs = visibleProjects.map(p => `class="project-record-row" role="button" tabindex="0" data-project-id="${Number(p.id)}"`);
-  root.innerHTML = `<div class="page-actions"><div class="search-row"><label class="search-field compact-search">Search<input id="projectSearch" type="search" placeholder="Search projects..."></label><label class="filter-field">Status<select id="projectStatusFilter"><option value="active">Active</option><option value="finished">Closed / Completed</option><option value="all">All Projects</option></select></label></div><button class="primary" id="openProjectModal" type="button">+ Add Project</button></div>
-  ${table(['Project','Client','Status','Site Address','Start','End','Actions'], rows, 'projects-table', rowAttrs)}
+  const visibleProjects = sortedProjects.filter(p => {
+    const status = String(p.status || '').toLowerCase();
+    const matchesStatus = projectStatusFilterValue === 'all' || (projectStatusFilterValue === 'finished' ? finishedStatuses.has(status) : !finishedStatuses.has(status));
+    const matchesClient = projectClientFilterValue === 'all' || String(p.client_id) === String(projectClientFilterValue);
+    return matchesStatus && matchesClient;
+  });
+  const rows = visibleProjects.map(p => ({attrs:`role="button" tabindex="0" data-project-id="${Number(p.id)}" data-search="${escapeHtml([p.name,clientName(p.client_id),p.status,p.site_address,p.start_date,p.completed_date].join(' ').toLowerCase())}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml(p.site_address || 'No site address')}</span></div>`,escapeHtml(clientName(p.client_id)),`<span class="status">${statusLabel(p.status)}</span>`,shortDate(p.start_date),shortDate(p.completed_date),rowActions('project', p.id)]}));
+  root.innerHTML = `<div class="page-actions record-page-actions"><div class="record-controls"><label class="search-field compact-search">Search Projects<input id="projectSearch" type="search" placeholder="Project, client, address, or status"></label><label class="filter-field">Status<select id="projectStatusFilter"><option value="all">All projects</option><option value="active">Current / Open</option><option value="finished">Completed / Canceled</option></select></label><label class="filter-field">Client<select id="projectClientFilter"><option value="all">All clients</option>${state.clients.map(client => `<option value="${client.id}">${escapeHtml(client.name)}</option>`).join('')}</select></label><button class="ghost reset-filters" id="resetProjectFilters" type="button">Reset</button><span class="result-count" id="projectResultCount" aria-live="polite">${visibleProjects.length} of ${sortedProjects.length} projects</span></div><button class="primary" id="openProjectModal" type="button">+ Add Project</button></div>
+  <section class="panel list-panel record-list-panel" aria-label="Projects">${adaptiveRecordList(['Project','Client','Status','Start','Completed','Actions'], rows, 'No projects yet. Add your first project to get started.', 'project-record-list')}</section>
   <div id="projectModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle"><div class="modal-card"><div class="modal-header"><div><h2 id="projectModalTitle">${editing ? 'Edit Project' : 'Add Project'}</h2><p>${editing ? 'Update this project.' : 'Create a project and attach it to a client.'}</p></div><button class="ghost modal-close" id="closeProjectModal" type="button" aria-label="Close project form">×</button></div><form id="projectForm" class="form-grid">
-    <label class="project-field">Client<select name="client_id" id="projectClient" required>${clientOptions(currentClientId)}</select></label><label class="project-field">Project Name<input name="name" required value="${escapeHtml(editing?.name)}" placeholder="Project name"></label>
-    <label class="project-field">Status<select name="status"><option value="lead">Lead</option><option value="quoted">Quoted</option><option value="approved">Approved</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="canceled">Canceled</option></select></label>
-    <label class="project-field">Start Date<input name="start_date" type="date" value="${escapeHtml(editing?.start_date)}"></label><label class="project-field">End Date<input name="completed_date" type="date" value="${escapeHtml(editing?.completed_date)}"></label>
-    <label class="project-field">Site Address<select id="siteAddressSelect">${addressOptions(addresses, editing?.site_address)}</select><input type="hidden" name="site_address" id="projectSiteAddress" value="${escapeHtml(editing?.site_address)}"></label>
-    <label id="newAddressWrap" class="full project-field project-address-field hidden">New Site Address<textarea id="projectNewSiteAddress" rows="2" placeholder="Enter the new site address"></textarea><span class="project-subfield-label">Address Label</span><input id="newAddressLabel" value="Site"></label>
-    <label class="full project-field project-notes-field">Notes<textarea name="notes" rows="3" placeholder="Internal project notes">${escapeHtml(editing?.notes)}</textarea></label>
+    <fieldset class="form-section full"><legend>Project basics</legend><div class="form-section-grid"><label class="project-field">Client<select name="client_id" id="projectClient" required>${clientOptions(currentClientId)}</select></label><label class="project-field">Project Name<input name="name" required value="${escapeHtml(editing?.name)}" placeholder="Project name"></label><label class="project-field">Status<select name="status"><option value="lead">Lead</option><option value="quoted">Quoted</option><option value="approved">Approved</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="canceled">Canceled</option></select></label></div></fieldset>
+    <fieldset class="form-section full"><legend>Schedule &amp; location</legend><div class="form-section-grid"><label class="project-field">Start Date<input name="start_date" type="date" value="${escapeHtml(editing?.start_date)}"></label><label class="project-field">End Date<input name="completed_date" type="date" value="${escapeHtml(editing?.completed_date)}"></label><label class="project-field full">Site Address<select id="siteAddressSelect">${addressOptions(addresses, editing?.site_address)}</select><input type="hidden" name="site_address" id="projectSiteAddress" value="${escapeHtml(editing?.site_address)}"></label><label id="newAddressWrap" class="full project-field project-address-field hidden">New Site Address<textarea id="projectNewSiteAddress" rows="2" placeholder="Enter the new site address"></textarea><span class="project-subfield-label">Address Label</span><input id="newAddressLabel" value="Site"></label></div></fieldset>
+    <fieldset class="form-section full"><legend>Internal details</legend><div class="form-section-grid"><label class="full project-field project-notes-field">Notes<textarea name="notes" rows="3" placeholder="Internal project notes">${escapeHtml(editing?.notes)}</textarea></label></div></fieldset>
+    <p class="form-error hidden full" data-form-error role="alert" tabindex="-1"></p>
     <div class="form-actions project-modal-actions"><button class="ghost" type="button" id="cancelProjectModal">Cancel</button><button class="primary" type="submit">${editing ? 'Update Project' : 'Save Project'}</button></div>
   </form></div></div>`;
-  projectStatusFilter.value = state.projectStatusFilter || 'active';
+  projectStatusFilter.value = state.projectStatusFilter || 'all';
+  projectClientFilter.value = state.projectClientFilter || 'all';
   projectStatusFilter.onchange = () => { state.projectStatusFilter = projectStatusFilter.value; renderProjects(); };
+  projectClientFilter.onchange = () => { state.projectClientFilter = projectClientFilter.value; renderProjects(); };
+  resetProjectFilters.onclick = () => { state.projectStatusFilter = 'all'; state.projectClientFilter = 'all'; renderProjects(); };
   projectForm.status.value = editing?.status || 'lead';
   projectClient.onchange = async () => { state.addressesByClient[projectClient.value] = null; const list = await ensureAddresses(projectClient.value); siteAddressSelect.innerHTML = addressOptions(list); projectSiteAddress.value = ''; projectNewSiteAddress.value = ''; newAddressWrap.classList.add('hidden'); };
   siteAddressSelect.onchange = () => { if (siteAddressSelect.value === '__new__') { newAddressWrap.classList.remove('hidden'); projectSiteAddress.value = ''; projectNewSiteAddress.focus(); } else { newAddressWrap.classList.add('hidden'); projectNewSiteAddress.value = ''; projectSiteAddress.value = siteAddressSelect.value; } };
@@ -1638,13 +1809,112 @@ async function renderProjects(editId=null) {
       }
       if (editing) await api(`/api/projects/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)});
       else await api('/api/projects', {method:'POST', body: JSON.stringify(payload)});
-      show(editing ? 'Project updated' : 'Project saved'); await renderProjects();
-    } catch (err) { alert(err.message); }
+      show(editing ? 'Project updated' : 'Project saved');
+      await preloadLookups();
+      if (returnProjectId) await renderProjectDetail(returnProjectId); else await renderProjects();
+    } catch (err) { setInlineFormError(projectForm, err); }
   };
-  setupModal('projectModal','openProjectModal','closeProjectModal','cancelProjectModal',editing,renderProjects,'select[name="client_id"]');
-  attachPageSearch('projectSearch');
+  setupModal('projectModal','openProjectModal','closeProjectModal','cancelProjectModal',editing,() => returnProjectId ? renderProjectDetail(returnProjectId) : renderProjects(),'select[name="client_id"]');
+  projectSearch.addEventListener('input', () => {
+    const query = projectSearch.value.trim().toLowerCase();
+    let shown = 0;
+    root.querySelectorAll('.project-record-list .record-row').forEach(row => {
+      const visible = !query || row.dataset.search.includes(query);
+      row.classList.toggle('hidden', !visible);
+      if (visible) shown += 1;
+    });
+    projectResultCount.textContent = `${shown} of ${sortedProjects.length} project${sortedProjects.length === 1 ? '' : 's'}`;
+  });
   attachRowActions();
   attachProjectRowClicks();
+}
+
+function projectRelatedReceipts(projectId, receipts, quotes, invoices, ledger) {
+  const quoteIds = new Set(quotes.map(item => Number(item.id)));
+  const invoiceIds = new Set(invoices.map(item => Number(item.id)));
+  const ledgerIds = new Set(ledger.map(item => Number(item.id)));
+  return receipts.filter(receipt => {
+    const linkedId = Number(receipt.linked_id);
+    return (receipt.linked_type === 'project' && linkedId === Number(projectId))
+      || (receipt.linked_type === 'quote' && quoteIds.has(linkedId))
+      || (receipt.linked_type === 'invoice' && invoiceIds.has(linkedId))
+      || (receipt.linked_type === 'ledger_entry' && ledgerIds.has(linkedId));
+  });
+}
+
+async function renderProjectDetail(projectId, tab=state.projectDetailTab || 'overview') {
+  state.page = 'projects';
+  state.projectDetailId = projectId;
+  state.clientDetailId = null;
+  state.projectDetailTab = tab;
+  state.editing = null;
+  await preloadLookups();
+  const project = state.projects.find(item => Number(item.id) === Number(projectId)) || await api(`/api/projects/${projectId}`);
+  const client = state.clients.find(item => Number(item.id) === Number(project.client_id));
+  const [quotesData, invoicesData, laborData, ledgerData, receiptsData] = await Promise.all([
+    api(`/api/quotes?project_id=${projectId}&page_size=100`),
+    api(`/api/invoices?project_id=${projectId}&page_size=100`),
+    api(`/api/labor?project_id=${projectId}&page_size=100`),
+    api(`/api/ledger?project_id=${projectId}&page_size=100`),
+    api('/api/receipts?page_size=100'),
+  ]);
+  const quotes = quotesData.items || [];
+  const invoices = invoicesData.items || [];
+  const labor = laborData.items || [];
+  const ledger = ledgerData.items || [];
+  const receipts = projectRelatedReceipts(projectId, receiptsData.items || [], quotes, invoices, ledger);
+  const outstanding = invoices.reduce((sum, invoice) => sum + Number(invoice.balance_due || 0), 0);
+  const uninvoicedLabor = labor.filter(entry => !entry.is_invoiced).reduce((sum, entry) => sum + Number(entry.line_total || 0), 0);
+  const revenue = ledger.filter(entry => ['revenue','income'].includes(entry.kind)).reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
+  const expenses = ledger.filter(entry => ['expense','cogs'].includes(entry.kind) && !TAX_PAYMENT_CATEGORIES.has(entry.category || '')).reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
+
+  const quoteRows = quotes.map(quote => ({attrs:`role="button" tabindex="0" data-related-type="quote" data-related-id="${quote.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(quote.quote_number)}</strong><span>${escapeHtml(quote.title)}</span></div>`,`<span class="status">${statusLabel(quote.status)}</span>`,shortDate(quote.quote_date),money(quote.total_amount),rowActions('quote', quote.id)]}));
+  const invoiceRows = invoices.map(invoice => ({attrs:`role="button" tabindex="0" data-related-type="invoice" data-related-id="${invoice.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(invoice.invoice_number)}</strong><span>${escapeHtml(invoice.title)}</span></div>`,`<span class="status">${statusLabel(invoice.status)}</span>`,shortDate(invoice.due_date),money(invoice.balance_due),rowActions('invoice', invoice.id)]}));
+  const laborRows = labor.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="labor" data-related-id="${entry.id}"`, cells:[shortDate(entry.work_date),`<div class="record-primary"><strong>${escapeHtml(entry.service_type)}</strong><span>${escapeHtml(entry.notes || 'No notes')}</span></div>`,`${escapeHtml(entry.hours)} hr`,money(entry.line_total),entry.is_invoiced ? '<span class="status">Invoiced</span>' : '<span class="status attention-status">Uninvoiced</span>',rowActions('labor', entry.id)]}));
+  const ledgerRows = ledger.map(entry => ({attrs:`role="button" tabindex="0" data-related-type="ledger" data-related-id="${entry.id}"`, cells:[shortDate(entry.entry_date),`<div class="record-primary"><strong>${escapeHtml(ledgerKindLabel(entry.kind))}</strong><span>${escapeHtml(entry.category)}</span></div>`,money(entry.amount),entry.receipt_id ? receiptPreviewButton(entry.receipt_id) : '—',rowActions('ledger', entry.id)]}));
+  const receiptRows = receipts.slice(0, 5).map(receipt => ({attrs:`role="button" tabindex="0" data-related-type="receipt" data-related-id="${receipt.id}"`, cells:[`<div class="record-primary"><strong>${escapeHtml(receipt.original_filename)}</strong><span>${escapeHtml(receipt.vendor_name || 'No vendor')}</span></div>`,shortDate(receipt.receipt_date),money(receipt.total_amount),receiptPreviewButton(receipt.id),rowActions('receipt', receipt.id)]}));
+  const recent = [
+    ...invoices.map(i => ({sort:i.invoice_date, type:'invoice', id:i.id, cells:['Invoice',`<strong>${escapeHtml(i.invoice_number)}</strong>`,statusLabel(i.status),money(i.balance_due)]})),
+    ...quotes.map(q => ({sort:q.quote_date, type:'quote', id:q.id, cells:['Quote',`<strong>${escapeHtml(q.quote_number)}</strong>`,statusLabel(q.status),money(q.total_amount)]})),
+    ...labor.map(l => ({sort:l.work_date, type:'labor', id:l.id, cells:['Labor',`<strong>${escapeHtml(l.service_type)}</strong>`,shortDate(l.work_date),money(l.line_total)]})),
+  ].sort((a, b) => String(b.sort || '').localeCompare(String(a.sort || ''))).slice(0, 6).map(item => ({attrs:`role="button" tabindex="0" data-related-type="${item.type}" data-related-id="${item.id}"`, cells:item.cells}));
+
+  document.querySelector('#pageTitle').textContent = project.name;
+  document.querySelector('#pageSubtitle').textContent = 'Project hub for quotes, invoices, labor, expenses, and related documents.';
+  updateActiveNavigation('projects');
+  document.querySelector('#mobilePageTitle').textContent = project.name;
+
+  const overviewHtml = `<div class="cards hub-summary-cards"><div class="card"><span>Quotes</span><strong>${quotes.length}</strong></div><div class="card"><span>Outstanding</span><strong>${money(outstanding)}</strong></div><div class="card"><span>Uninvoiced Labor</span><strong>${money(uninvoicedLabor)}</strong></div><div class="card"><span>Ledger Balance</span><strong>${money(revenue - expenses)}</strong></div></div>
+    <section class="panel detail-info-panel"><div class="panel-heading"><h2>Project details</h2><span class="status">${statusLabel(project.status)}</span></div><div class="info-grid"><div><strong>Client</strong><span><button class="link-button" id="openProjectClient" type="button">${escapeHtml(client?.name || `Client #${project.client_id}`)}</button></span></div><div><strong>Start date</strong><span>${shortDate(project.start_date)}</span></div><div><strong>Completed date</strong><span>${shortDate(project.completed_date)}</span></div><div class="wide"><strong>Site address</strong><span>${escapeHtml(project.site_address || '—')}</span></div>${project.notes ? `<div class="wide"><strong>Notes</strong><span>${escapeHtml(project.notes)}</span></div>` : ''}</div></section>
+    <section class="panel"><div class="panel-heading"><h2>Recent activity</h2></div>${adaptiveRecordList(['Type','Record','Status / Date','Amount'], recent, 'No activity for this project yet.', 'project-related-list')}</section>
+    <section class="panel"><div class="panel-heading"><h2>Recent receipts</h2><span class="muted">${receipts.length} related</span></div>${adaptiveRecordList(['Receipt','Date','Total','File','Actions'], receiptRows, 'No receipts are related to this project yet.', 'project-related-list')}</section>`;
+  const tabs = {
+    overview: overviewHtml,
+    quotes: `<section class="panel"><div class="panel-heading"><h2>Quotes</h2><span class="result-count">${quotes.length}</span></div>${adaptiveRecordList(['Quote','Status','Date','Total','Actions'], quoteRows, 'No quotes for this project yet.', 'project-related-list')}</section>`,
+    invoices: `<section class="panel"><div class="panel-heading"><h2>Invoices</h2><strong>Outstanding ${money(outstanding)}</strong></div>${adaptiveRecordList(['Invoice','Status','Due','Balance','Actions'], invoiceRows, 'No invoices for this project yet.', 'project-related-list')}</section>`,
+    labor: `<section class="panel"><div class="panel-heading"><h2>Labor</h2><strong>Uninvoiced ${money(uninvoicedLabor)}</strong></div>${adaptiveRecordList(['Date','Service','Hours','Value','Billing','Actions'], laborRows, 'No labor for this project yet.', 'project-related-list')}</section>`,
+    ledger: `<section class="panel"><div class="panel-heading"><h2>Ledger</h2><strong>Balance ${money(revenue - expenses)}</strong></div>${adaptiveRecordList(['Date','Entry','Amount','Receipt','Actions'], ledgerRows, 'No ledger entries for this project yet.', 'project-related-list')}</section>`,
+  };
+
+  root.innerHTML = `<div class="detail-header hub-header"><button class="ghost" id="backToProjects" type="button">← Projects</button><div class="detail-title"><div class="hub-title-line"><h2>${escapeHtml(project.name)}</h2><span class="status">${statusLabel(project.status)}</span></div><p><button class="link-button hub-client-link" id="projectClientLink" type="button">${escapeHtml(client?.name || `Client #${project.client_id}`)}</button>${project.site_address ? ` · ${escapeHtml(project.site_address)}` : ''}</p><div class="hub-meta-line"><span>Start ${shortDate(project.start_date)}</span>${project.completed_date ? `<span>Completed ${shortDate(project.completed_date)}</span>` : ''}</div></div><div class="hub-header-actions"><button class="ghost" id="editProjectDetail" type="button">Edit</button><button class="primary" id="addProjectDetail" type="button">+ Add</button></div></div>
+    <div class="tabs hub-tabs" role="tablist" aria-label="Project sections">${detailTabButton('project', tab, 'overview','Overview')}${detailTabButton('project', tab, 'quotes',`Quotes (${quotes.length})`)}${detailTabButton('project', tab, 'invoices',`Invoices (${invoices.length})`)}${detailTabButton('project', tab, 'labor',`Labor (${labor.length})`)}${detailTabButton('project', tab, 'ledger',`Ledger (${ledger.length})`)}</div>${tabs[tab] || overviewHtml}`;
+
+  backToProjects.onclick = () => loadPage('projects');
+  projectClientLink.onclick = () => renderClientDetail(project.client_id);
+  root.querySelector('#openProjectClient')?.addEventListener('click', () => renderClientDetail(project.client_id));
+  editProjectDetail.onclick = () => renderProjects(projectId, projectId);
+  addProjectDetail.onclick = () => openScopedActionSheet({title:`Add to ${project.name}`, subtitle:'The client and project are already selected.', actions:[
+    {label:'Add Labor', description:'Log work against this project.', run:() => openClientQuickModal(project.client_id, 'labor', null, {projectId, returnToProject:true})},
+    {label:'Add Expense', description:'Add a project expense.', run:() => openClientQuickModal(project.client_id, 'ledger', null, {projectId, returnToProject:true, ledgerKind:'expense'})},
+    {label:'New Quote', description:'Create a quote for this project.', run:() => openClientQuickModal(project.client_id, 'quotes', null, {projectId, returnToProject:true})},
+    {label:'New Invoice', description:'Create an invoice for this project.', run:() => openClientQuickModal(project.client_id, 'invoices', null, {projectId, returnToProject:true})},
+  ]});
+  root.querySelectorAll('[data-project-tab]').forEach(button => button.addEventListener('click', () => renderProjectDetail(projectId, button.dataset.projectTab)));
+  attachRecordOpen('.project-related-list [data-related-type][data-related-id]', row => {
+    const typeMap = {quote:'quotes', invoice:'invoices', labor:'labor', ledger:'ledger', receipt:'receipts'};
+    return openClientQuickModal(project.client_id, typeMap[row.dataset.relatedType], Number(row.dataset.relatedId), {projectId, returnToProject:true});
+  });
+  attachRowActions();
 }
 
 async function renderQuotes(editId=null) {
@@ -1868,6 +2138,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
   const editing = await findRecordForModal(type, editId);
   if (editId && !editing) throw new Error('Could not find that record to edit. Refresh and try again.');
   const isEdit = Boolean(editing);
+  const scopedProjectId = editing?.project_id || opts.projectId || '';
   const clientLabel = clientScopeLabel(clientId);
   const clientHidden = `<input type="hidden" name="client_id" value="${clientId}"><label>Client<input value="${clientLabel}" disabled></label>`;
   const wrapper = document.createElement('div');
@@ -1880,6 +2151,10 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     closeClientQuickModal();
     show(message);
     await preloadLookups();
+    if (opts.returnToProject && opts.projectId) {
+      await renderProjectDetail(Number(opts.projectId), tab === 'projects' ? 'overview' : tab);
+      return;
+    }
     if (opts.returnToDashboard) {
       await renderDashboard();
       return;
@@ -1934,7 +2209,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
         <label>Quote #<input name="quote_number" required${quoteNumberAttrs} value="${escapeHtml(generatedQuoteNumber)}"></label>
         ${clientHidden}
         <label>Valid Through<input name="valid_until" type="date" value="${escapeHtml(editing?.valid_until)}"></label>
-        <label>Site / Project<select name="project_id">${projectOptions(editing?.project_id, clientId)}</select></label>
+        <label>Site / Project<select name="project_id">${projectOptions(scopedProjectId, clientId)}</select></label>
         <label>Issued Date<input name="quote_date" type="date" required value="${escapeHtml(editing?.quote_date || todayIso())}"></label>
         <label>Quote Title<input name="title" required value="${escapeHtml(editing?.title)}" placeholder="Camera install quote"></label>
         <label>Status<select name="status"><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label>
@@ -1976,7 +2251,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     const generatedInvoiceNumber = editing?.invoice_number || await nextInvoiceNumber();
     const invoiceNumberAttrs = isEdit ? '' : ' readonly aria-readonly="true" title="Generated automatically to prevent duplicate invoice numbers"';
     wrapper.innerHTML = `<div class="modal-card wide-modal"><div class="modal-header"><div><h2>${isEdit ? 'Edit Invoice' : 'Add Invoice'}</h2><p>${isEdit ? 'Update this labor invoice without leaving the client.' : `Create a labor invoice for ${clientLabel}.`}</p></div><button class="ghost modal-close" type="button" aria-label="Close invoice form">×</button></div>
-      ${invoiceInternalSheetHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, scopedClientId: clientId, clientLabel, settings, formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote'})}
+      ${invoiceInternalSheetHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, scopedClientId: clientId, scopedProjectId, clientLabel, settings, formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote'})}
     </div>`;
     root.appendChild(wrapper);
     await wireInvoiceInternalForm(wrapper, {formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote', editing, scopedClientId: clientId, onSave: async payload => { try { if (isEdit) await api(`/api/invoices/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/invoices', {method:'POST', body: JSON.stringify(payload)}); await closeAfter('invoices', isEdit ? 'Invoice updated' : 'Invoice saved'); } catch(err) { alert(err.message); } }});
@@ -1988,9 +2263,9 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     const defaultRate = settings.default_labor_rate || '100.00';
     wrapper.innerHTML = `<div class="modal-card"><div class="modal-header"><div><h2>${isEdit ? 'Edit Labor Entry' : 'Add Labor Entry'}</h2><p>${isEdit ? 'Update this labor entry without leaving the client.' : `Add labor for ${clientLabel}.`}</p></div><button class="ghost modal-close" type="button" aria-label="Close labor form">×</button></div><form id="clientLaborForm" class="form-grid">
       <label>Work Date<input name="work_date" type="date" required value="${escapeHtml(editing?.work_date || todayIso())}"></label>${clientHidden}
-      <label>Project<select name="project_id" id="clientLaborProject">${projectOptions(editing?.project_id, clientId)}</select></label><label>Status<select name="status"><option value="planned">Planned</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option><option value="canceled">Canceled</option></select></label>
+      <label>Project<select name="project_id" id="clientLaborProject">${projectOptions(scopedProjectId, clientId)}</select></label><label>Status<select name="status"><option value="planned">Planned</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option><option value="canceled">Canceled</option></select></label>
       <label>Service Type<select name="service_type" required><option value="">Select service...</option>${optionList(state.dropdowns.service_type, editing?.service_type)}</select></label><label>Hours<input name="hours" type="number" step="0.25" min="0" required value="${escapeHtml(editing?.hours ?? '')}"></label>
-      <label>Hourly Rate<input name="hourly_rate" type="number" step="0.01" min="0.01" required value="${escapeHtml(editing?.hourly_rate || defaultRate)}"></label><label>Invoice<select name="invoice_id" id="clientLaborInvoice">${invoiceOptions(editing?.invoice_id, clientId, editing?.project_id)}</select></label>
+      <label>Hourly Rate<input name="hourly_rate" type="number" step="0.01" min="0.01" required value="${escapeHtml(editing?.hourly_rate || defaultRate)}"></label><label>Invoice<select name="invoice_id" id="clientLaborInvoice">${invoiceOptions(editing?.invoice_id, clientId, scopedProjectId)}</select></label>
       <label>Invoice Number<input name="invoice_number" value="${escapeHtml(editing?.invoice_number)}" placeholder="Optional manual invoice #"></label><label class="check-row"><input name="is_invoiced" type="checkbox" ${editing?.is_invoiced ? 'checked' : ''}> Mark as invoiced</label>
       <label class="full">Notes<textarea name="notes">${escapeHtml(editing?.notes)}</textarea></label>
       <div class="form-actions"><button class="primary" type="submit">${isEdit ? 'Update Labor Entry' : 'Save Labor Entry'}</button><button class="ghost quick-cancel" type="button">Cancel</button></div>
@@ -2011,15 +2286,15 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
       <label>Date<input name="entry_date" type="date" required value="${escapeHtml(editing?.entry_date || todayIso())}"></label><label>Amount<input name="amount" type="number" step="0.01" required value="${escapeHtml(editing?.amount ?? '')}"></label>
       <label>Account Type<select name="kind"><option value="income">Income</option><option value="cogs">Cost of Goods Sold</option><option value="expense">Expenses</option></select></label><label>Business Type<select name="business_type"><option value="client">Client</option><option value="admin">Admin</option></select></label>
       <label>Category<select name="category" required><option value="">Select category...</option></select></label><input type="hidden" name="client_id" value="${clientId}"><label data-ledger-client-wrap>Client<input value="${clientLabel}" disabled></label>
-      <label data-ledger-project-wrap>Project<select name="project_id">${projectOptions(editing?.project_id, clientId)}</select></label>
-      <label data-ledger-quote-wrap>Quote<select name="quote_id">${quoteOptions(editing?.quote_id, clientId, editing?.project_id)}</select></label><label data-ledger-invoice-wrap>Invoice<select name="invoice_id">${invoiceOptions(editing?.invoice_id, clientId, editing?.project_id)}</select></label>
+      <label data-ledger-project-wrap>Project<select name="project_id">${projectOptions(scopedProjectId, clientId)}</select></label>
+      <label data-ledger-quote-wrap>Quote<select name="quote_id">${quoteOptions(editing?.quote_id, clientId, scopedProjectId)}</select></label><label data-ledger-invoice-wrap>Invoice<select name="invoice_id">${invoiceOptions(editing?.invoice_id, clientId, scopedProjectId)}</select></label>
       <label class="full">Receipt Photo/PDF<input name="receipt_file" type="file" accept="image/*,application/pdf"></label>${editing?.receipt_id ? `<div class="full muted">Attached receipt: ${receiptPreviewButton(editing.receipt_id, 'Preview receipt')}</div>` : ''}
       <label class="full">Description<textarea name="description">${escapeHtml(editing?.description)}</textarea></label>
       <div class="form-actions"><button class="primary" type="submit">${isEdit ? 'Update Ledger Entry' : 'Save Ledger Entry'}</button><button class="ghost quick-cancel" type="button">Cancel</button></div>
     </form></div>`;
     root.appendChild(wrapper);
     const form = wrapper.querySelector('#clientLedgerForm');
-    form.kind.value = editingKind;
+    form.kind.value = opts.ledgerKind || editingKind;
     form.business_type.value = editingBusinessType;
     configureLedgerForm(form, { selectedCategory: editing?.category || '', clientId });
     form.onsubmit = async e => { e.preventDefault(); const payload = normalizeLedgerPayload(clean(formData(form))); delete payload.receipt_file; if (payload.business_type === 'client') payload.client_id = Number(clientId); try { await saveLedgerEntryWithReceipt(form, payload, isEdit ? editing : null); await closeAfter('ledger', isEdit ? 'Ledger entry updated' : 'Ledger entry saved'); } catch(err) { alert(err.message); } };
@@ -2108,25 +2383,54 @@ function statusRows(statuses) {
   return Object.entries(statuses || {}).map(([name, count]) => [statusLabel(name), count]);
 }
 
+function dashboardWorkRows(data) {
+  const rows = [
+    ...(data.open_projects || []).slice(0, 2).map(item => ({type:'project', id:item.id, cells:['Project',`<div class="record-primary"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.client)}</span></div>`,`<span class="status">${statusLabel(item.status)}</span>`,shortDate(item.start_date)]})),
+    ...(data.open_quotes || []).slice(0, 2).map(item => ({type:'quote', id:item.id, cells:['Quote',`<div class="record-primary"><strong>${escapeHtml(item.quote_number)}</strong><span>${escapeHtml(item.client)}</span></div>`,`<span class="status">${statusLabel(item.status)}</span>`,money(item.total_amount)]})),
+    ...(data.open_invoices || []).slice(0, 2).map(item => ({type:'invoice', id:item.id, cells:['Invoice',`<div class="record-primary"><strong>${escapeHtml(item.invoice_number)}</strong><span>${escapeHtml(item.client)}</span></div>`,`<span class="status">${statusLabel(item.status)}</span>`,money(item.balance_due)]})),
+  ].slice(0, 5);
+  return rows.map((row, index) => ({className:`dashboard-work-item dashboard-work-item-${index + 1}`, attrs:`role="button" tabindex="0" data-dashboard-type="${row.type}" data-dashboard-id="${row.id}"`, cells:row.cells}));
+}
+
 async function renderDashboard() {
-  const data = await api('/api/dashboard');
-  const c = data.cards;
-  root.innerHTML = `<div class="dashboard-view"><div class="cards dashboard-cards">
-    <div class="card"><span>Open Projects</span><strong>${c.open_projects}</strong></div>
-    <div class="card"><span>Open Quotes</span><strong>${c.open_quotes}</strong></div>
-    <div class="card"><span>Open Invoices</span><strong>${c.open_invoices}</strong></div>
-    <div class="card"><span>Invoice Balance</span><strong>${money(c.open_invoice_balance)}</strong></div>
-    <div class="card"><span>Uninvoiced Labor</span><strong>${c.uninvoiced_labor}</strong></div>
-    <div class="card"><span>Uninvoiced Value</span><strong>${money(c.uninvoiced_labor_value)}</strong></div>
-  </div>
-  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Open Projects</h2><button class="mini" type="button" data-view-page="projects">View All</button></div>${dashboardTable(['Project','Client','Status','Start'], (data.open_projects || []).map(p => [escapeHtml(p.name), escapeHtml(p.client), `<span class="status">${statusLabel(p.status)}</span>`, shortDate(p.start_date)]), 'No open projects.', (data.open_projects || []).map(p => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="project" data-dashboard-id="${Number(p.id)}"`))}</div>
-  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Open Quotes</h2><button class="mini" type="button" data-view-page="quotes">View All</button></div>${dashboardTable(['Quote','Client','Project','Status','Total','Valid Until'], (data.open_quotes || []).map(q => [escapeHtml(q.quote_number), escapeHtml(q.client), escapeHtml(q.project), `<span class="status">${statusLabel(q.status)}</span>`, money(q.total_amount), shortDate(q.valid_until)]), 'No open quotes.', (data.open_quotes || []).map(q => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="quote" data-dashboard-id="${Number(q.id)}"`))}</div>
-  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Open Invoices</h2><button class="mini" type="button" data-view-page="invoices">View All</button></div>${dashboardTable(['Invoice','Client','Project','Status','Balance','Due'], (data.open_invoices || []).map(i => [escapeHtml(i.invoice_number), escapeHtml(i.client), escapeHtml(i.project), `<span class="status">${statusLabel(i.status)}</span>`, money(i.balance_due), shortDate(i.due_date)]), 'No open invoices.', (data.open_invoices || []).map(i => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="invoice" data-dashboard-id="${Number(i.id)}"`))}</div>
-  <div class="panel dashboard-panel"><div class="panel-heading"><h2>Uninvoiced Labor</h2><button class="mini" type="button" data-view-page="labor">View All</button></div>${dashboardTable(['Date','Client','Project','Service','Value'], (data.uninvoiced_labor_items || []).map(l => [shortDate(l.work_date), escapeHtml(l.client), escapeHtml(l.project), escapeHtml(l.service_type), money(l.line_total)]), 'No uninvoiced labor.', (data.uninvoiced_labor_items || []).map(l => `class="dashboard-record-row" role="button" tabindex="0" data-dashboard-type="labor" data-dashboard-id="${Number(l.id)}"`))}</div></div>`;
+  const now = new Date();
+  const monthStart = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  const monthEnd = formatLocalDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  const [dashboardResult, reportResult] = await Promise.allSettled([
+    api('/api/dashboard'),
+    api(`/api/reports/money-flow?start_date=${monthStart}&end_date=${monthEnd}`),
+  ]);
+  if (dashboardResult.status !== 'fulfilled') throw dashboardResult.reason;
+  const data = dashboardResult.value;
+  const cards = data.cards || {};
+  const reportCards = reportResult.status === 'fulfilled' ? reportResult.value.cards : null;
+  const today = todayIso();
+  const overdueInvoices = (data.open_invoices || []).filter(invoice => invoice.status === 'overdue' || (invoice.due_date && invoice.due_date < today));
+  const overdueIds = new Set(overdueInvoices.map(invoice => Number(invoice.id)));
+  const unpaidInvoices = (data.open_invoices || []).filter(invoice => !overdueIds.has(Number(invoice.id)));
+  const attentionItems = [
+    overdueInvoices.length ? {label:'Overdue invoices', detail:`${overdueInvoices.length} need follow-up`, value:money(overdueInvoices.reduce((sum, invoice) => sum + Number(invoice.balance_due || 0), 0)), page:'invoices', level:'urgent'} : null,
+    unpaidInvoices.length ? {label:'Open unpaid invoices', detail:`${unpaidInvoices.length} awaiting payment`, value:money(unpaidInvoices.reduce((sum, invoice) => sum + Number(invoice.balance_due || 0), 0)), page:'invoices', level:'warning'} : null,
+    Number(cards.uninvoiced_labor || 0) ? {label:'Uninvoiced labor', detail:`${cards.uninvoiced_labor} ${Number(cards.uninvoiced_labor) === 1 ? 'entry' : 'entries'} ready to review`, value:money(cards.uninvoiced_labor_value), page:'labor', level:'warning'} : null,
+    Number(cards.open_quotes || 0) ? {label:'Open quotes', detail:`${cards.open_quotes} ${Number(cards.open_quotes) === 1 ? 'quote' : 'quotes'} in progress`, value:'Review', page:'quotes', level:'neutral'} : null,
+    Number(cards.open_projects || 0) ? {label:'Open projects', detail:`${cards.open_projects} active ${Number(cards.open_projects) === 1 ? 'project' : 'projects'}`, value:'Review', page:'projects', level:'neutral'} : null,
+  ].filter(Boolean);
+  const attentionHtml = attentionItems.length ? `<div class="attention-list">${attentionItems.map(item => `<button class="attention-row attention-${item.level}" type="button" data-view-page="${item.page}"><span class="attention-marker" aria-hidden="true"></span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.detail)}</small></span><b>${escapeHtml(item.value)}</b><span aria-hidden="true">→</span></button>`).join('')}</div>` : '<div class="record-empty compact-empty"><strong>You are caught up.</strong><span>No invoices, labor, quotes, or projects need attention.</span></div>';
+  const monthHtml = reportCards ? `<div class="cards month-summary-cards"><div class="card"><span>Revenue</span><strong>${money(reportCards.ledger_revenue)}</strong></div><div class="card"><span>Total Expenses</span><strong>${money(reportCards.ledger_expenses)}</strong></div><div class="card"><span>Estimated Take-Home</span><strong>${money(reportCards.owner_pay)}</strong></div><div class="card"><span>Sales Tax Safety Hold</span><strong>${money(reportCards.estimated_sales_tax)}</strong></div></div>` : '<div class="inline-unavailable" role="status"><strong>Monthly summary unavailable.</strong><span>Open work is still shown below. Refresh to try the report again.</span></div>';
+  const workRows = dashboardWorkRows(data);
+  const laborRows = (data.uninvoiced_labor_items || []).slice(0, 5).map((entry, index) => ({className:`dashboard-work-item dashboard-work-item-${index + 1}`, attrs:`role="button" tabindex="0" data-dashboard-type="labor" data-dashboard-id="${entry.id}"`, cells:[shortDate(entry.work_date),`<div class="record-primary"><strong>${escapeHtml(entry.service_type)}</strong><span>${escapeHtml(entry.client)}</span></div>`,escapeHtml(entry.project || 'No project'),money(entry.line_total)]}));
+  const workIsEmpty = !attentionItems.length && !workRows.length && !laborRows.length;
+
+  root.innerHTML = `<div class="dashboard-view phase2-dashboard">${workIsEmpty ? '<div class="empty-work-banner"><strong>No open work yet.</strong><span>Create a client or project when you are ready to begin tracking work.</span></div>' : ''}
+    <section class="panel dashboard-panel attention-panel"><div class="panel-heading"><div><p class="section-eyebrow">Priority queue</p><h2>Needs Attention</h2></div></div>${attentionHtml}</section>
+    <section class="panel dashboard-panel month-panel"><div class="panel-heading"><div><p class="section-eyebrow">Current month</p><h2>This Month</h2></div><span class="muted">${escapeHtml(monthStart)} – ${escapeHtml(monthEnd)}</span></div>${monthHtml}</section>
+    <section class="panel dashboard-panel"><div class="panel-heading"><div><p class="section-eyebrow">Active records</p><h2>Open Work</h2></div><div class="view-all-group"><button class="mini" type="button" data-view-page="projects">Projects</button><button class="mini" type="button" data-view-page="quotes">Quotes</button><button class="mini" type="button" data-view-page="invoices">Invoices</button></div></div>${adaptiveRecordList(['Type','Record','Status','Date / Value'], workRows, 'No open projects, quotes, or invoices.', 'dashboard-record-list')}</section>
+    <section class="panel dashboard-panel"><div class="panel-heading"><div><p class="section-eyebrow">Ready to bill</p><h2>Uninvoiced Labor</h2></div><button class="mini" type="button" data-view-page="labor">View All</button></div>${adaptiveRecordList(['Date','Service','Project','Value'], laborRows, 'No uninvoiced labor.', 'dashboard-record-list')}</section></div>`;
   attachDashboardActions();
 }
 
 async function openDashboardRecord(type, id) {
+  if (type === 'project') return renderProjectDetail(id);
   const typeMap = { project: 'projects', quote: 'quotes', invoice: 'invoices', labor: 'labor', ledger: 'ledger' };
   const quickType = typeMap[type];
   if (!quickType) throw new Error(`Unknown dashboard record type: ${type}`);
