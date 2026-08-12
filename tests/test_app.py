@@ -26,9 +26,9 @@ def test_client_project_ledger_flow(authed):
         "/api/ledger",
         json={
             "entry_date": "2026-05-26",
-            "kind": "revenue",
+            "kind": "income",
             "business_type": "client",
-            "category": "Client Labor",
+            "category": "Services",
             "amount": "300.00",
             "client_id": client_id,
             "project_id": project_id,
@@ -92,27 +92,24 @@ def test_projects_update_list_delete(authed):
 
 
 def test_ledger_update_summary_delete_and_invalid_receipt(authed):
-    cid = authed.post("/api/clients", json={"name": "Ledger Client"}).json()["id"]
-    pid = authed.post("/api/projects", json={"client_id": cid, "name": "Ledger Project"}).json()["id"]
-    created = authed.post(
+    response = authed.post(
         "/api/ledger",
         json={
             "entry_date": "2026-05-26",
             "kind": "expense",
             "business_type": "admin",
-            "category": "Tools",
+            "category": "Tools and Equipment",
             "amount": "50.00",
-            "client_id": cid,
-            "project_id": pid,
         },
-    ).json()
-    eid = created["id"]
-    assert (
-        authed.get("/api/ledger", params={"kind": "expense", "business_type": "admin", "project_id": pid}).json()[
-            "meta"
-        ]["total"]
-        == 1
     )
+    assert response.status_code == 201
+    created = response.json()
+    assert created["client_id"] is None
+    assert created["project_id"] is None
+    eid = created["id"]
+    listed = authed.get("/api/ledger", params={"kind": "expense", "business_type": "admin"}).json()
+    assert listed["meta"]["total"] == 1
+    assert listed["items"][0]["project_id"] is None
     assert authed.get("/api/ledger/summary").json()["expenses"] == "50.00"
     updated = authed.patch(f"/api/ledger/{eid}", json={"amount": "75.00"}).json()
     assert updated["amount"] == "75.00"
@@ -123,7 +120,7 @@ def test_ledger_update_summary_delete_and_invalid_receipt(authed):
                 "entry_date": "2026-05-26",
                 "kind": "expense",
                 "business_type": "admin",
-                "category": "Tools",
+                "category": "Tools and Equipment",
                 "amount": "10.00",
                 "receipt_id": 999,
             },
@@ -243,7 +240,7 @@ def test_client_addresses_and_labor_flow(authed):
 def test_dropdown_options_admin_flow(authed):
     listed = authed.get("/api/dropdowns", params={"kind": "ledger_category"})
     assert listed.status_code == 200
-    assert any(item["label"] == "Tools" for item in listed.json()["items"])
+    assert any(item["label"] == "Tools and Equipment" for item in listed.json()["items"])
 
     created = authed.post(
         "/api/admin/dropdowns",
@@ -315,8 +312,31 @@ def test_quotes_invoices_and_labor_invoice_link_flow(authed):
     )
     assert invoice.status_code == 201
     invoice_json = invoice.json()
-    assert invoice_json["balance_due"] == "75.00"
+    assert invoice_json["subtotal"] == "100.00"
+    assert invoice_json["tax_amount"] == "7.00"
+    assert invoice_json["total_amount"] == "107.00"
+    assert invoice_json["amount_paid"] == "0.00"
+    assert invoice_json["balance_due"] == "107.00"
     invoice_id = invoice_json["id"]
+
+    invoice_with_payment = authed.patch(
+        f"/api/invoices/{invoice_id}",
+        json={
+            "line_items": [
+                {
+                    "kind": "payment",
+                    "description": "Payment received",
+                    "quantity": "1.00",
+                    "unit_price": "25.00",
+                    "line_total": "25.00",
+                    "taxable": False,
+                }
+            ]
+        },
+    )
+    assert invoice_with_payment.status_code == 200
+    assert invoice_with_payment.json()["amount_paid"] == "25.00"
+    assert invoice_with_payment.json()["balance_due"] == "82.00"
 
     labor = authed.get("/api/labor", params={"client_id": client_id}).json()["items"][0]
     assert labor["invoice_id"] == invoice_id
@@ -329,3 +349,135 @@ def test_quotes_invoices_and_labor_invoice_link_flow(authed):
     assert labor_after_delete["invoice_id"] is None
     assert labor_after_delete["is_invoiced"] is False
     assert authed.delete(f"/api/quotes/{quote_id}").status_code == 200
+
+
+def test_authenticated_user_profile_updates_and_password_change(authed):
+    current = authed.get("/api/auth/me")
+    assert current.status_code == 200
+    assert current.json()["email"] == "admin@example.com"
+
+    renamed = authed.patch("/api/auth/me", json={"full_name": "Baseline Administrator"})
+    assert renamed.status_code == 200
+    assert renamed.json()["full_name"] == "Baseline Administrator"
+
+    changed_email = authed.patch("/api/auth/me", json={"email": "baseline@example.com"})
+    assert changed_email.status_code == 200
+    assert changed_email.json()["email"] == "baseline@example.com"
+
+    invalid_email = authed.patch("/api/auth/me", json={"email": "not-an-email"})
+    assert invalid_email.status_code == 422
+    assert invalid_email.json()["detail"] == "Enter a valid email address"
+
+    wrong_password = authed.patch(
+        "/api/auth/me",
+        json={"current_password": "WrongPassword123!", "new_password": "NewPassword123!"},
+    )
+    assert wrong_password.status_code == 400
+    assert wrong_password.json()["detail"] == "Current password is required to change your password"
+
+    changed_password = authed.patch(
+        "/api/auth/me",
+        json={"current_password": "ChangeMe123!", "new_password": "NewPassword123!"},
+    )
+    assert changed_password.status_code == 200
+
+    assert authed.post("/api/auth/logout").status_code == 200
+    old_login = authed.post(
+        "/api/auth/login",
+        json={"email": "baseline@example.com", "password": "ChangeMe123!"},
+    )
+    assert old_login.status_code == 401
+    new_login = authed.post(
+        "/api/auth/login",
+        json={"email": "baseline@example.com", "password": "NewPassword123!"},
+    )
+    assert new_login.status_code == 200
+
+
+def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
+    client_id = authed.post("/api/clients", json={"name": "Report Client"}).json()["id"]
+    project_id = authed.post(
+        "/api/projects",
+        json={"client_id": client_id, "name": "Report Project", "status": "in_progress"},
+    ).json()["id"]
+
+    entries = [
+        {
+            "entry_date": "2026-05-26",
+            "kind": "income",
+            "business_type": "client",
+            "category": "Services",
+            "amount": "300.00",
+            "client_id": client_id,
+            "project_id": project_id,
+        },
+        {
+            "entry_date": "2026-05-26",
+            "kind": "cogs",
+            "business_type": "client",
+            "category": "Cost of Goods Sold",
+            "amount": "100.00",
+            "client_id": client_id,
+            "project_id": project_id,
+        },
+        {
+            "entry_date": "2026-05-26",
+            "kind": "expense",
+            "business_type": "admin",
+            "category": "General Business Expense",
+            "amount": "50.00",
+        },
+        {
+            "entry_date": "2026-05-26",
+            "kind": "expense",
+            "business_type": "admin",
+            "category": "Sales Tax Paid",
+            "amount": "20.00",
+        },
+        {
+            "entry_date": "2026-05-26",
+            "kind": "expense",
+            "business_type": "admin",
+            "category": "Income Tax Paid",
+            "amount": "10.00",
+        },
+    ]
+    for entry in entries:
+        response = authed.post("/api/ledger", json=entry)
+        assert response.status_code == 201
+
+    report = authed.get(
+        "/api/reports/money-flow",
+        params={"start_date": "2026-01-01", "end_date": "2026-12-31"},
+    )
+    assert report.status_code == 200
+    data = report.json()
+    cards = data["cards"]
+    assert cards["ledger_revenue"] == "300.00"
+    assert cards["job_expenses"] == "100.00"
+    assert cards["business_expenses"] == "50.00"
+    assert cards["ledger_expenses"] == "150.00"
+    assert cards["net_income"] == "150.00"
+    assert cards["gross_sales_tax_estimate"] == "21.00"
+    assert cards["gross_income_tax_estimate"] == "45.00"
+    assert cards["sales_tax_paid"] == "20.00"
+    assert cards["income_tax_paid"] == "10.00"
+    assert cards["total_tax_paid"] == "30.00"
+    assert cards["estimated_sales_tax"] == "1.00"
+    assert cards["estimated_income_tax"] == "35.00"
+    assert cards["estimated_tax_owed"] == "36.00"
+    assert cards["ledger_net_profit"] == "84.00"
+    assert cards["owner_pay"] == "84.00"
+
+    tax_rows = [row for row in data["account_type_breakdown"] if row["account_type"] == "Tax Payments"]
+    assert {row["category"]: row["total"] for row in tax_rows} == {
+        "Income Tax Paid": "10.00",
+        "Sales Tax Paid": "20.00",
+    }
+
+    reversed_range = authed.get(
+        "/api/reports/money-flow",
+        params={"start_date": "2026-12-31", "end_date": "2026-01-01"},
+    )
+    assert reversed_range.status_code == 400
+    assert reversed_range.json()["detail"] == "End date must be on or after start date"
