@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forged Systems Tracking</title>
+  <meta name="theme-color" content="#101828" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="FST" />
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.8.12" />
+</head>
+<body>
+  <div id="setupView" class="login-wrap hidden">
+    <div class="login-card setup-card">
+      <div class="brand-mark">FS</div>
+      <h1>Forged Systems Tracking</h1>
+      <p>Initial setup: create the first admin account or restore a full backup.</p>
+      <div class="setup-tabs" role="tablist" aria-label="Initial setup options">
+        <button id="showCreateSetup" class="tab active" type="button">Create Account</button>
+        <button id="showRestoreSetup" class="tab" type="button">Restore Backup</button>
+      </div>
+      <form id="setupAccountForm" class="setup-pane" autocomplete="on">
+        <label>Full Name <input id="setupFullName" name="full_name" required value="Administrator" /></label>
+        <label>Email <input id="setupEmail" name="email" type="email" required placeholder="you@example.com" /></label>
+        <label>Password <input id="setupPassword" name="password" type="password" required minlength="8" /></label>
+        <button class="primary" type="submit">Create Admin Account</button>
+      </form>
+      <form id="setupRestoreForm" class="setup-pane hidden" enctype="multipart/form-data">
+        <p class="muted">Restore is available here only before the first account exists. Restoring brings back the database and uploaded files from the backup.</p>
+        <label>Backup ZIP <input id="setupRestoreFile" name="file" type="file" accept=".zip" required /></label>
+        <button class="primary" type="submit">Restore From Backup</button>
+      </form>
+      <div id="setupError" class="error" role="alert"></div>
+    </div>
+  </div>
+
+  <div id="loginView" class="login-wrap hidden">
+    <form id="loginForm" class="login-card" autocomplete="on">
+      <div class="brand-mark">FS</div>
+      <h1>Forged Systems Tracking</h1>
+      <p>Internal client, project, quote, invoice, labor, receipt, and ledger tracking.</p>
+      <label>Email <input id="email" type="email" required /></label>
+      <label>Password <input id="password" type="password" required /></label>
+      <label class="check-row"><input id="rememberMe" type="checkbox" /> Remember me on this device</label>
+      <button class="primary" type="submit">Sign in</button>
+      <div id="loginError" class="error" role="alert"></div>
+    </form>
+  </div>
+
+  <div id="appView" class="app-shell hidden">
+    <div class="mobile-shell-bar" role="banner">
+      <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Open navigation" aria-controls="appSidebar" aria-expanded="false">☰</button>
+      <div class="mobile-title"><span>FS</span><strong>Forged Systems Tracking</strong></div>
+    </div>
+    <div id="sidebarScrim" class="sidebar-scrim" aria-hidden="true"></div>
+    <aside id="appSidebar" class="sidebar">
+      <div class="logo"><span>FS</span><strong>Forged Systems Tracking</strong></div>
+      <nav aria-label="Main navigation">
+        <button data-page="dashboard" class="nav active">Dashboard</button>
+        <button data-page="clients" class="nav">Clients</button>
+        <button data-page="projects" class="nav">Projects</button>
+        <button data-page="quotes" class="nav">Quotes</button>
+        <button data-page="invoices" class="nav">Invoices</button>
+        <button data-page="ledger" class="nav">Ledger</button>
+        <button data-page="labor" class="nav">Labor</button>
+        <button data-page="reports" class="nav">Reports</button>
+        <button data-page="admin" class="nav">Backup & Restore</button>
+      </nav>
+      <div class="sidebar-user-actions">
+        <button id="userBtn" class="ghost" type="button">User</button>
+        <button id="logoutBtn" class="ghost" type="button">Log out</button>
+      </div>
+    </aside>
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Dashboard</h1>
+          <p id="pageSubtitle">A safe visual MVP with full-data backups from day one.</p>
+        </div>
+      </header>
+      <section id="messages" aria-live="polite"></section>
+      <section id="pageRoot"></section>
+    </main>
+  </div>
+  <script type="module" src="/static/js/app.js?v=0.8.12"></script>
+</body>
+</html>
