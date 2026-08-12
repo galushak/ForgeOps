@@ -1,10 +1,10 @@
-const CACHE_NAME = 'forgeops-phase-2-home-clients-projects-v1';
+const CACHE_NAME = 'forgeops-phase-2-home-clients-projects-v2';
 const APP_SHELL = [
   '/',
   '/static/styles.css?v=0.8.12-phase2',
   '/static/shell.css?v=0.8.12-phase2',
-  '/static/phase2.css?v=0.8.12-phase2',
-  '/static/js/app.js?v=0.8.12-phase2',
+  '/static/phase2.css?v=0.8.12-phase2-polish',
+  '/static/js/app.js?v=0.8.12-phase2-polish',
   '/static/manifest.webmanifest',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'

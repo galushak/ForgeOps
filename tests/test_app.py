@@ -62,8 +62,9 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     phase2_css = (static_dir / "phase2.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/phase2.css?v=0.8.12-phase2" in html
-    assert "forgeops-phase-2-home-clients-projects-v1" in service_worker
+    assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
+    assert "/static/js/app.js?v=0.8.12-phase2-polish" in html
+    assert "forgeops-phase-2-home-clients-projects-v2" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -75,8 +76,17 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     assert "data-project-tab" in javascript
     assert "projectClientFilter" in javascript
     assert "adaptiveRecordList" in javascript
+    assert javascript.index("<h2>This Month</h2>") < javascript.index("<h2>Needs Attention</h2>")
+    assert "No open work yet." not in javascript
+    assert 'class="tabs hub-tabs detail-tab-grid client-detail-tabs"' in javascript
+    assert 'class="tabs hub-tabs detail-tab-grid project-detail-tabs"' in javascript
+    assert 'class="tabs hub-tabs" role="tablist"' not in javascript
     assert ".record-list-head" in phase2_css
     assert ".scoped-action-sheet" in phase2_css
+    assert ".detail-header ~ .hub-tabs.detail-tab-grid" in phase2_css
+    assert ".client-detail-tabs" in phase2_css
+    assert ".project-detail-tabs" in phase2_css
+    assert "overflow: visible" in phase2_css
     assert "@media (max-width: 760px)" in phase2_css
 
 
