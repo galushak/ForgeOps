@@ -1,4 +1,4 @@
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -3288,57 +3288,182 @@ function attachDashboardActions() {
   });
 }
 
+function reportMetricHtml(label, value, helper='', modifier='') {
+  const tone = Number(value) < 0 ? ' report-metric-negative' : '';
+  return `<article class="report-metric ${modifier}${tone}"><span>${escapeHtml(label)}</span><strong>${money(value)}</strong>${helper ? `<small>${escapeHtml(helper)}</small>` : ''}</article>`;
+}
+
+function reportHasFinancialActivity(data) {
+  const c = data.cards || {};
+  return (data.account_type_breakdown || []).length > 0
+    || (data.by_category || []).length > 0
+    || Number(c.invoice_total || 0) !== 0
+    || Number(c.uninvoiced_labor || 0) !== 0;
+}
+
+function renderReportResults(data, range) {
+  const c = data.cards;
+  const hasFinancialActivity = reportHasFinancialActivity(data);
+  const noActivity = hasFinancialActivity ? '' : `<div class="report-empty-state" role="status"><strong>No financial activity in this period</strong><span>The summary remains at $0.00 so the selected range is still clear. Try another period to see recorded activity.</span></div>`;
+  const accountRows = (data.account_type_breakdown || []).map(r => [escapeHtml(r.account_type), escapeHtml(r.category), money(r.total)]);
+  const categoryRows = (data.by_category || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]);
+  const clientRows = (data.by_client || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]);
+  const projectRows = (data.by_project || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]);
+  const clientReportRows = (data.client_report || []).map(r => [escapeHtml(r.client), r.projects, r.quotes, r.invoices, r.labor_entries, money(r.ledger_net), money(r.invoice_total), money(r.outstanding)]);
+  const projectReportRows = (data.project_report || []).map(r => [escapeHtml(r.project), escapeHtml(r.client), statusLabel(r.status), r.quotes, r.invoices, r.labor_entries, money(r.ledger_net), money(r.invoice_total)]);
+
+  return `<div class="report-workspace">
+    <header class="report-period-banner">
+      <div><p class="report-eyebrow">Selected period</p><h2>${escapeHtml(range.label)}</h2></div>
+      <p><span>${escapeHtml(data.range.start_date)}</span><b>through</b><span>${escapeHtml(data.range.end_date)}</span></p>
+    </header>
+    ${noActivity}
+    <section class="report-section report-summary-section" aria-labelledby="reportSummaryTitle">
+      <div class="report-section-heading"><div><p class="report-eyebrow">Business result</p><h2 id="reportSummaryTitle">Financial Summary</h2></div><p>Revenue, spending, income, and the final amount remaining after tax holds.</p></div>
+      <div class="report-primary-summary">
+        ${reportMetricHtml('Revenue', c.ledger_revenue, 'Gross ledger revenue', 'report-metric-revenue')}
+        ${reportMetricHtml('Total Expenses', c.ledger_expenses, 'Job and business expenses', 'report-metric-expenses')}
+        ${reportMetricHtml('Net Income', c.net_income, 'Revenue minus total expenses', 'report-metric-income')}
+        ${reportMetricHtml('Net Profit', c.ledger_net_profit, 'Net income minus remaining tax reserves', 'report-metric-profit')}
+      </div>
+      <div class="report-financial-identity" aria-label="Net income allocation">
+        <span><small>Net Profit</small><strong>${money(c.ledger_net_profit)}</strong></span>
+        <b>+</b>
+        <span><small>Remaining Sales Tax</small><strong>${money(c.estimated_sales_tax)}</strong></span>
+        <b>+</b>
+        <span><small>Remaining Income Tax</small><strong>${money(c.estimated_income_tax)}</strong></span>
+        <b>=</b>
+        <span><small>Net Income</small><strong>${money(c.net_income)}</strong></span>
+      </div>
+    </section>
+
+    <section class="report-section report-reserve-section" aria-labelledby="reportReserveTitle">
+      <div class="report-section-heading"><div><p class="report-eyebrow">Held, paid, remaining</p><h2 id="reportReserveTitle">Tax Reserve Detail</h2></div><p>Safety holding amounts reduce spendable profit. Payments reduce only their matching hold.</p></div>
+      <div class="report-reserve-grid">
+        <article class="report-reserve-card report-reserve-sales">
+          <div><span class="report-reserve-icon" aria-hidden="true">S</span><div><h3>Sales Tax</h3><p>Conservative 7% hold on gross revenue</p></div></div>
+          <dl><div><dt>Estimated Hold</dt><dd>${money(c.gross_sales_tax_estimate)}</dd></div><div><dt>Paid</dt><dd>${money(c.sales_tax_paid)}</dd></div><div class="report-reserve-remaining"><dt>Remaining</dt><dd>${money(c.estimated_sales_tax)}</dd></div></dl>
+        </article>
+        <article class="report-reserve-card report-reserve-income">
+          <div><span class="report-reserve-icon" aria-hidden="true">I</span><div><h3>Income Tax</h3><p>Configured-rate hold on net income</p></div></div>
+          <dl><div><dt>Estimated Hold</dt><dd>${money(c.gross_income_tax_estimate)}</dd></div><div><dt>Paid</dt><dd>${money(c.income_tax_paid)}</dd></div><div class="report-reserve-remaining"><dt>Remaining</dt><dd>${money(c.estimated_income_tax)}</dd></div></dl>
+        </article>
+      </div>
+      <div class="report-reserve-total"><span>Total remaining tax reserve</span><strong>${money(c.estimated_tax_owed)}</strong><small>Total tax paid in the selected period: ${money(c.total_tax_paid)}</small></div>
+    </section>
+
+    <section class="report-section" aria-labelledby="reportBreakdownTitle">
+      <div class="report-section-heading"><div><p class="report-eyebrow">Money in and out</p><h2 id="reportBreakdownTitle">Income & Expense Breakdown</h2></div><p>Ledger activity grouped without changing its account type or category.</p></div>
+      <div class="report-breakdown-grid">
+        <article class="report-subsection"><h3>By Account Type & Category</h3>${compactTable(['Account Type','Category','Total'], accountRows, 'No ledger activity for this period.', 'reports-table report-account-table')}</article>
+        <article class="report-subsection"><h3>By Business Category</h3>${compactTable(['Category','Revenue','Expenses','Net'], categoryRows, 'No category activity for this period.', 'reports-table report-category-table')}</article>
+      </div>
+    </section>
+
+    <section class="report-section" aria-labelledby="reportContributionTitle">
+      <div class="report-section-heading"><div><p class="report-eyebrow">Sources and work</p><h2 id="reportContributionTitle">Client & Project Contribution</h2></div><p>Revenue and expenses attached to the selected period's ledger records.</p></div>
+      <div class="report-contribution-grid">
+        <article class="report-subsection"><h3>By Client</h3>${compactTable(['Client','Revenue','Expenses','Net'], clientRows, 'No client activity for this period.', 'reports-table report-client-table')}</article>
+        <article class="report-subsection"><h3>By Project</h3>${compactTable(['Project','Revenue','Expenses','Net'], projectRows, 'No project activity for this period.', 'reports-table report-project-table')}</article>
+      </div>
+    </section>
+
+    <section class="report-section report-record-section" aria-labelledby="reportRecordsTitle">
+      <div class="report-section-heading"><div><p class="report-eyebrow">Operational context</p><h2 id="reportRecordsTitle">Invoices & Records</h2></div><p>Receivables and work counts remain separate from ledger revenue.</p></div>
+      <div class="report-secondary-summary">
+        ${reportMetricHtml('Job Expenses', c.job_expenses)}
+        ${reportMetricHtml('Business Expenses', c.business_expenses)}
+        ${reportMetricHtml('Invoice Total', c.invoice_total)}
+        ${reportMetricHtml('Invoice Paid', c.invoice_paid)}
+        ${reportMetricHtml('Outstanding', c.invoice_outstanding)}
+        ${reportMetricHtml('Invoice Sales Tax', c.invoice_sales_tax)}
+        ${reportMetricHtml('Uninvoiced Labor', c.uninvoiced_labor)}
+      </div>
+      <div class="report-status-grid">
+        <article><h3>Projects</h3>${compactTable(['Status','Count'], statusRows(data.project_statuses), 'No projects.', 'reports-table report-status-table')}</article>
+        <article><h3>Quotes</h3>${compactTable(['Status','Count'], statusRows(data.quote_statuses), 'No quotes.', 'reports-table report-status-table')}</article>
+        <article><h3>Invoices</h3>${compactTable(['Status','Count'], statusRows(data.invoice_statuses), 'No invoices.', 'reports-table report-status-table')}</article>
+      </div>
+      <details class="report-detail-disclosure"><summary>Client record detail</summary>${compactTable(['Client','Projects','Quotes','Invoices','Labor','Ledger Net','Invoice Total','Outstanding'], clientReportRows, 'No client report rows for this period.', 'reports-table report-detail-table')}</details>
+      <details class="report-detail-disclosure"><summary>Project record detail</summary>${compactTable(['Project','Client','Status','Quotes','Invoices','Labor','Ledger Net','Invoice Total'], projectReportRows, 'No project report rows for this period.', 'reports-table report-detail-table')}</details>
+    </section>
+  </div>`;
+}
+
 async function renderReports() {
   const now = new Date();
   const currentYear = now.getFullYear();
-  root.innerHTML = `<div class="page-actions report-filter-actions"><details class="filter-menu report-filter-menu"><summary>Filters</summary><form id="reportForm" class="form-grid report-grid filter-menu-panel report-filter-dropdown">
-    <label class="report-field">View By<select id="reportMode" name="mode"><option value="year">Year</option><option value="month">Month</option><option value="ny-quarter">New York Sales Tax Quarter</option><option value="range">Custom Date Range</option></select></label>
-    <label class="report-field">Year<input id="reportYear" name="year" type="number" min="2000" max="2100" step="1" value="${currentYear}" inputmode="numeric"></label>
-    <label class="report-field" id="reportMonthWrap">Month<select id="reportMonth" name="month">${Array.from({length:12}, (_,i)=>`<option value="${i+1}" ${i===now.getMonth()?'selected':''}>${new Date(2000, i, 1).toLocaleString('default', {month:'long'})}</option>`).join('')}</select></label>
-    <label class="report-field" id="reportQuarterWrap">NY Quarter<select id="reportQuarter" name="quarter"><option value="1">Q1: Dec-Feb</option><option value="2">Q2: Mar-May</option><option value="3">Q3: Jun-Aug</option><option value="4">Q4: Sep-Nov</option></select></label>
-    <label class="report-field" id="reportStartWrap">Start Date<input id="reportStart" type="date" value="${formatLocalDate(new Date(currentYear,0,1))}"></label>
-    <label class="report-field" id="reportEndWrap">End Date<input id="reportEnd" type="date" value="${formatLocalDate(new Date(currentYear,11,31))}"></label>
-    <div class="form-actions report-actions"><button class="primary" type="submit">Run Report</button></div>
-  </form></details></div><div id="reportResults"></div>`;
+  state.reportYear ||= String(currentYear);
+  state.reportMonth ||= String(now.getMonth() + 1);
+  state.reportStart ||= formatLocalDate(new Date(currentYear, 0, 1));
+  state.reportEnd ||= formatLocalDate(new Date(currentYear, 11, 31));
+  const selected = (value, current) => String(value) === String(current) ? 'selected' : '';
 
+  root.innerHTML = `<section class="panel report-period-panel" aria-labelledby="reportPeriodTitle">
+    <div class="report-section-heading report-period-heading"><div><p class="report-eyebrow">Reporting period</p><h2 id="reportPeriodTitle">Choose a Time Range</h2></div><p>The active range is repeated above every result.</p></div>
+    <form id="reportForm" class="report-period-controls">
+      <label class="report-field"><span>View By</span><select id="reportMode" name="mode"><option value="year" ${selected('year', state.reportMode)}>Year</option><option value="month" ${selected('month', state.reportMode)}>Month</option><option value="ny-quarter" ${selected('ny-quarter', state.reportMode)}>New York Sales Tax Quarter</option><option value="range" ${selected('range', state.reportMode)}>Custom Date Range</option></select></label>
+      <label class="report-field" id="reportYearWrap"><span>Year</span><input id="reportYear" name="year" type="number" min="2000" max="2100" step="1" value="${escapeHtml(state.reportYear)}" inputmode="numeric"></label>
+      <label class="report-field" id="reportMonthWrap"><span>Month</span><select id="reportMonth" name="month">${Array.from({length:12}, (_,i)=>`<option value="${i+1}" ${selected(i + 1, state.reportMonth)}>${new Date(2000, i, 1).toLocaleString('default', {month:'long'})}</option>`).join('')}</select></label>
+      <label class="report-field" id="reportQuarterWrap"><span>NY Quarter</span><select id="reportQuarter" name="quarter"><option value="1" ${selected('1', state.reportQuarter)}>Q1: Dec-Feb</option><option value="2" ${selected('2', state.reportQuarter)}>Q2: Mar-May</option><option value="3" ${selected('3', state.reportQuarter)}>Q3: Jun-Aug</option><option value="4" ${selected('4', state.reportQuarter)}>Q4: Sep-Nov</option></select></label>
+      <label class="report-field" id="reportStartWrap"><span>From</span><input id="reportStart" name="start" type="date" value="${escapeHtml(state.reportStart)}"></label>
+      <label class="report-field" id="reportEndWrap"><span>To</span><input id="reportEnd" name="end" type="date" value="${escapeHtml(state.reportEnd)}"></label>
+      <button class="primary report-run-button" type="submit">Run Report</button>
+    </form>
+    <p id="reportError" class="report-error hidden" role="alert"></p>
+  </section>
+  <div id="reportResults" aria-live="polite"><div class="report-loading" role="status">Loading report...</div></div>`;
+
+  const form = document.querySelector('#reportForm');
+  const modeControl = document.querySelector('#reportMode');
+  const yearWrap = document.querySelector('#reportYearWrap');
+  const monthWrap = document.querySelector('#reportMonthWrap');
+  const quarterWrap = document.querySelector('#reportQuarterWrap');
+  const startWrap = document.querySelector('#reportStartWrap');
+  const endWrap = document.querySelector('#reportEndWrap');
   const updateVisibility = () => {
-    const mode = reportMode.value;
-    reportMonthWrap.classList.toggle('hidden', mode !== 'month');
-    reportQuarterWrap.classList.toggle('hidden', mode !== 'ny-quarter');
-    reportStartWrap.classList.toggle('hidden', mode !== 'range');
-    reportEndWrap.classList.toggle('hidden', mode !== 'range');
+    const mode = modeControl.value;
+    yearWrap.classList.toggle('hidden', mode === 'range');
+    monthWrap.classList.toggle('hidden', mode !== 'month');
+    quarterWrap.classList.toggle('hidden', mode !== 'ny-quarter');
+    startWrap.classList.toggle('hidden', mode !== 'range');
+    endWrap.classList.toggle('hidden', mode !== 'range');
+  };
+  const saveControls = () => {
+    state.reportMode = modeControl.value;
+    state.reportYear = document.querySelector('#reportYear').value;
+    state.reportMonth = document.querySelector('#reportMonth').value;
+    state.reportQuarter = document.querySelector('#reportQuarter').value;
+    state.reportStart = document.querySelector('#reportStart').value;
+    state.reportEnd = document.querySelector('#reportEnd').value;
   };
   const run = async () => {
+    saveControls();
     const range = reportRangeFromControls();
-    const data = await api(`/api/reports/money-flow?start_date=${range.start}&end_date=${range.end}`);
-    const c = data.cards;
-    const target = document.querySelector('#reportResults');
-    target.innerHTML = `<div class="panel"><h2>Money Flow: ${escapeHtml(range.label)}</h2><p class="muted">Range: ${escapeHtml(data.range.start_date)} through ${escapeHtml(data.range.end_date)}</p><div class="cards report-money-cards">
-      <div class="card"><span>Revenue</span><strong>${money(c.ledger_revenue)}</strong></div>
-      <div class="card"><span>Total Expenses</span><strong>${money(c.ledger_expenses)}</strong></div>
-      <div class="card"><span>Job Expenses</span><strong>${money(c.job_expenses)}</strong></div>
-      <div class="card"><span>Business Expenses</span><strong>${money(c.business_expenses)}</strong></div>
-      <div class="card"><span>Net Income</span><strong>${money(c.net_income)}</strong></div>
-      <div class="card"><span>Net Profit</span><strong>${money(c.ledger_net_profit)}</strong></div>
-      <div class="card"><span>Invoice Total</span><strong>${money(c.invoice_total)}</strong></div>
-      <div class="card"><span>Outstanding</span><strong>${money(c.invoice_outstanding)}</strong></div>
-      <div class="card"><span>Sales Tax Reserve</span><strong>${money(c.estimated_sales_tax)}</strong></div>
-      <div class="card"><span>Sales Tax Paid</span><strong>${money(c.sales_tax_paid)}</strong></div>
-      <div class="card"><span>Income Tax Reserve</span><strong>${money(c.estimated_income_tax)}</strong></div>
-      <div class="card"><span>Income Tax Paid</span><strong>${money(c.income_tax_paid)}</strong></div>
-      <div class="card"><span>Tax Reserve Total</span><strong>${money(c.estimated_tax_owed)}</strong></div>
-      <div class="card"><span>Total Tax Paid</span><strong>${money(c.total_tax_paid)}</strong></div>
-    </div><p class="muted">Reserve cards show the remaining tax buckets after payments. Net profit plus the remaining Sales Tax and Income Tax reserves equals net income. Invoice totals are shown separately for receivables tracking.</p></div>
-    <div class="panel"><h2>Money Flow by Account Type & Category</h2><p class="muted">Uses the same selected report range and breaks ledger activity into the QuickBooks-style account type/category totals.</p>${compactTable(['Account Type','Category','Total'], (data.account_type_breakdown || []).map(r => [escapeHtml(r.account_type), escapeHtml(r.category), money(r.total)]), 'No ledger activity for this period.', 'reports-table')}</div>
-    <div class="panel"><h2>By Category</h2>${compactTable(['Category','Revenue','Expenses','Net'], (data.by_category || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]), 'No ledger activity for this period.', 'reports-table')}</div>
-    <div class="panel"><h2>By Client</h2>${compactTable(['Client','Revenue','Expenses','Net'], (data.by_client || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]), 'No client activity for this period.', 'reports-table')}</div>
-    <div class="panel"><h2>By Project</h2>${compactTable(['Project','Revenue','Expenses','Net'], (data.by_project || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]), 'No project activity for this period.', 'reports-table')}</div>
-    <div class="panel"><h2>Status Summary</h2><div class="report-columns"><div><h3>Projects</h3>${compactTable(['Status','Count'], statusRows(data.project_statuses), 'No projects.', 'reports-table')}</div><div><h3>Quotes</h3>${compactTable(['Status','Count'], statusRows(data.quote_statuses), 'No quotes.', 'reports-table')}</div><div><h3>Invoices</h3>${compactTable(['Status','Count'], statusRows(data.invoice_statuses), 'No invoices.', 'reports-table')}</div></div></div>
-    <div class="panel"><h2>Client Report</h2>${compactTable(['Client','Projects','Quotes','Invoices','Labor','Ledger Net','Invoice Total','Outstanding'], (data.client_report || []).map(r => [escapeHtml(r.client), r.projects, r.quotes, r.invoices, r.labor_entries, money(r.ledger_net), money(r.invoice_total), money(r.outstanding)]), 'No client report rows for this period.', 'reports-table')}</div>
-    <div class="panel"><h2>Project Report</h2>${compactTable(['Project','Client','Status','Quotes','Invoices','Labor','Ledger Net','Invoice Total'], (data.project_report || []).map(r => [escapeHtml(r.project), escapeHtml(r.client), statusLabel(r.status), r.quotes, r.invoices, r.labor_entries, money(r.ledger_net), money(r.invoice_total)]), 'No project report rows for this period.', 'reports-table')}</div>`;
+    const error = document.querySelector('#reportError');
+    const button = form.querySelector('.report-run-button');
+    error.classList.add('hidden');
+    error.textContent = '';
+    button.disabled = true;
+    button.textContent = 'Running...';
+    try {
+      const data = await api(`/api/reports/money-flow?start_date=${range.start}&end_date=${range.end}`);
+      document.querySelector('#reportResults').innerHTML = renderReportResults(data, range);
+    } catch (err) {
+      error.textContent = err.message || 'Unable to run this report.';
+      error.classList.remove('hidden');
+      return false;
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Run Report';
+    }
   };
-  reportMode.addEventListener('change', updateVisibility);
-  reportForm.onsubmit = async e => { e.preventDefault(); try { await run(); } catch(err) { alert(err.message); } };
+  modeControl.addEventListener('change', () => { saveControls(); updateVisibility(); });
+  form.addEventListener('change', saveControls);
+  form.onsubmit = async event => {
+    event.preventDefault();
+    await run();
+  };
   updateVisibility();
   await run();
 }

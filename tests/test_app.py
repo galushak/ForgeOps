@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
-    assert "forgeops-phase-6-ledger" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
+    assert "forgeops-phase-7-reports" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
-    assert "forgeops-phase-6-ledger" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
+    assert "forgeops-phase-7-reports" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
 
     for marker in [
@@ -284,10 +284,10 @@ def test_frontend_phase_5_labor_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in html
-    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
-    assert "forgeops-phase-6-ledger" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
+    assert "forgeops-phase-7-reports" in service_worker
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in service_worker
 
     for marker in [
         "Search Labor",
@@ -346,10 +346,10 @@ def test_frontend_phase_6_ledger_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in html
-    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
-    assert "forgeops-phase-6-ledger" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
+    assert "forgeops-phase-7-reports" in service_worker
     assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in service_worker
 
     for marker in [
         "Search Ledger",
@@ -405,6 +405,62 @@ def test_frontend_phase_6_ledger_workflow_characterization():
         "@media (max-width: 360px)",
     ]:
         assert marker in phase6_css
+
+
+def test_frontend_phase_7_reports_workflow_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    phase7_css = (static_dir / "phase7-reports.css").read_text(encoding="utf-8")
+    service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
+
+    assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in html
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
+    assert "forgeops-phase-7-reports" in service_worker
+    assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase7-reports" in service_worker
+
+    for marker in [
+        "function reportMetricHtml",
+        "function reportHasFinancialActivity",
+        "function renderReportResults",
+        'id="reportMode"',
+        "New York Sales Tax Quarter",
+        "Custom Date Range",
+        'id="reportStartWrap"><span>From</span>',
+        'id="reportEndWrap"><span>To</span>',
+        "Selected period",
+        "Financial Summary",
+        "Revenue minus total expenses",
+        "Net income minus remaining tax reserves",
+        "Tax Reserve Detail",
+        "Estimated Hold",
+        "Remaining",
+        "Income & Expense Breakdown",
+        "Client & Project Contribution",
+        "Invoices & Records",
+        "No financial activity in this period",
+        "report-detail-disclosure",
+        "/api/reports/money-flow?start_date=",
+    ]:
+        assert marker in javascript
+
+    for marker in [
+        ".report-period-controls",
+        ".report-primary-summary",
+        ".report-financial-identity",
+        ".report-reserve-grid",
+        ".report-breakdown-grid",
+        ".report-contribution-grid",
+        ".report-empty-state",
+        ".report-workspace .reports-table td::before",
+        "overflow-wrap: anywhere",
+        "var(--surface-raised)",
+        "var(--text-muted)",
+        "@media (max-width: 700px)",
+        "@media (max-width: 360px)",
+    ]:
+        assert marker in phase7_css
 
 
 def test_health(client):
@@ -1200,9 +1256,11 @@ def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
             "amount": "10.00",
         },
     ]
+    created_ids = []
     for entry in entries:
         response = authed.post("/api/ledger", json=entry)
         assert response.status_code == 201
+        created_ids.append(response.json()["id"])
 
     report = authed.get(
         "/api/reports/money-flow",
@@ -1226,6 +1284,13 @@ def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
     assert cards["estimated_tax_owed"] == "36.00"
     assert cards["ledger_net_profit"] == "114.00"
     assert cards["owner_pay"] == "114.00"
+    assert Decimal(cards["ledger_revenue"]) - Decimal(cards["ledger_expenses"]) == Decimal(cards["net_income"])
+    assert Decimal(cards["gross_sales_tax_estimate"]) == (
+        Decimal(cards["ledger_revenue"]) * Decimal("0.07")
+    )
+    assert Decimal(cards["net_income"]) - Decimal(cards["estimated_sales_tax"]) - Decimal(
+        cards["estimated_income_tax"]
+    ) == Decimal(cards["ledger_net_profit"])
     assert (
         Decimal(cards["ledger_net_profit"])
         + Decimal(cards["estimated_sales_tax"])
@@ -1239,6 +1304,39 @@ def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
         "Income Tax Paid": "10.00",
         "Sales Tax Paid": "20.00",
     }
+    assert data["by_category"] == [
+        {"name": "Services", "revenue": "300.00", "expenses": "0.00", "net": "300.00"},
+        {
+            "name": "General Business Expense",
+            "revenue": "0.00",
+            "expenses": "50.00",
+            "net": "-50.00",
+        },
+        {
+            "name": "Cost of Goods Sold",
+            "revenue": "0.00",
+            "expenses": "100.00",
+            "net": "-100.00",
+        },
+    ]
+    assert data["by_client"] == [
+        {"name": "Report Client", "revenue": "300.00", "expenses": "100.00", "net": "200.00"},
+        {"name": "Admin / Unassigned", "revenue": "0.00", "expenses": "50.00", "net": "-50.00"},
+    ]
+    assert data["by_project"] == [
+        {"name": "Report Project", "revenue": "300.00", "expenses": "100.00", "net": "200.00"},
+        {"name": "No Project", "revenue": "0.00", "expenses": "50.00", "net": "-50.00"},
+    ]
+
+    empty_period = authed.get(
+        "/api/reports/money-flow",
+        params={"start_date": "2025-01-01", "end_date": "2025-12-31"},
+    )
+    assert empty_period.status_code == 200
+    assert empty_period.json()["cards"]["ledger_revenue"] == "0.00"
+    assert empty_period.json()["cards"]["ledger_expenses"] == "0.00"
+    assert empty_period.json()["account_type_breakdown"] == []
+    assert empty_period.json()["by_category"] == []
 
     reversed_range = authed.get(
         "/api/reports/money-flow",
@@ -1246,6 +1344,19 @@ def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
     )
     assert reversed_range.status_code == 400
     assert reversed_range.json()["detail"] == "End date must be on or after start date"
+
+    for entry_id in created_ids:
+        assert authed.delete(f"/api/ledger/{entry_id}").status_code == 200
+    restored = authed.get(
+        "/api/reports/money-flow",
+        params={"start_date": "2026-01-01", "end_date": "2026-12-31"},
+    ).json()
+    assert restored["cards"]["ledger_revenue"] == "0.00"
+    assert restored["cards"]["ledger_expenses"] == "0.00"
+    assert restored["cards"]["net_income"] == "0.00"
+    assert restored["cards"]["ledger_net_profit"] == "0.00"
+    assert restored["account_type_breakdown"] == []
+    assert restored["by_category"] == []
 
 
 def test_money_flow_report_uses_configured_income_tax_rate(authed):
