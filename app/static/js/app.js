@@ -1,4 +1,4 @@
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -1321,6 +1321,53 @@ function setLaborEditorPageState(active) {
   else mobileNavigation.removeAttribute('aria-hidden');
 }
 
+function setLedgerEditorPageState(active) {
+  document.body.classList.toggle('ledger-editor-open', active);
+  const mobileNavigation = document.querySelector('.mobile-bottom-nav');
+  if (!mobileNavigation) return;
+  mobileNavigation.inert = active;
+  if (active) mobileNavigation.setAttribute('aria-hidden', 'true');
+  else mobileNavigation.removeAttribute('aria-hidden');
+}
+
+function setupLedgerModal({editing=null, rerender}) {
+  const modal = root.querySelector('#ledgerModal');
+  const openButton = root.querySelector('#openLedgerModal');
+  if (!modal || !openButton) return;
+  let inertPeers = [];
+  const setBackgroundInert = active => {
+    if (active) inertPeers = [...root.children].filter(child => child !== modal);
+    inertPeers.forEach(child => { child.inert = active; });
+  };
+  const onKeydown = event => { if (event.key === 'Escape') closeModal(); };
+  const openModal = () => {
+    if (!state.ledgerReturnFocusSelector) state.ledgerReturnFocusSelector = '#openLedgerModal';
+    modal.classList.remove('hidden');
+    setBackgroundInert(true);
+    setLedgerEditorPageState(true);
+    document.addEventListener('keydown', onKeydown);
+    setTimeout(() => modal.querySelector(editing ? 'select[name="kind"]' : 'input[name="entry_date"]')?.focus(), 0);
+  };
+  const closeModal = async () => {
+    document.removeEventListener('keydown', onKeydown);
+    setBackgroundInert(false);
+    setLedgerEditorPageState(false);
+    const focusSelector = state.ledgerReturnFocusSelector || '#openLedgerModal';
+    state.ledgerReturnFocusSelector = '';
+    await Promise.resolve(rerender());
+    setTimeout(() => {
+      const focusTarget = [...root.querySelectorAll(focusSelector)].find(element => element.offsetParent !== null) || root.querySelector('#openLedgerModal');
+      focusTarget?.focus();
+    }, 0);
+  };
+  modal._closeLedgerEditor = closeModal;
+  openButton.onclick = openModal;
+  modal.querySelector('#closeLedgerModal')?.addEventListener('click', closeModal);
+  modal.querySelector('#cancelLedgerModal')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
+  if (editing) openModal();
+}
+
 function setupLaborModal({editing=null, rerender}) {
   const modal = root.querySelector('#laborModal');
   const openButton = root.querySelector('#openLaborModal');
@@ -1613,6 +1660,7 @@ function attachRowActions() {
       e.preventDefault();
       e.stopPropagation();
       if (btn.dataset.type === 'quote') state.quoteReturnFocusSelector = `[data-action="edit"][data-type="quote"][data-id="${Number(btn.dataset.id)}"]`;
+      if (btn.dataset.type === 'ledger') state.ledgerReturnFocusSelector = `[data-action="edit"][data-type="ledger"][data-id="${Number(btn.dataset.id)}"]`;
       try { await editRecord(btn.dataset.type, Number(btn.dataset.id)); }
       catch (err) { alert(err.message || 'Unable to open edit form.'); }
     };
@@ -1695,7 +1743,10 @@ function attachInvoiceRowClicks() {
 
 function attachLedgerRowClicks() {
   root.querySelectorAll('.ledger-table .ledger-record-row[data-ledger-id]').forEach(row => {
-    const open = () => editRecord('ledger', Number(row.dataset.ledgerId));
+    const open = () => {
+      state.ledgerReturnFocusSelector = `[data-action="edit"][data-type="ledger"][data-id="${Number(row.dataset.ledgerId)}"]`;
+      return editRecord('ledger', Number(row.dataset.ledgerId));
+    };
     row.addEventListener('click', event => {
       if (event.target.closest('button, a, input, select, textarea')) return;
       open();
@@ -1706,6 +1757,12 @@ function attachLedgerRowClicks() {
       event.preventDefault();
       open();
     });
+  });
+  root.querySelectorAll('.ledger-card-open[data-ledger-id]').forEach(button => {
+    button.onclick = () => {
+      state.ledgerReturnFocusSelector = `[data-action="edit"][data-type="ledger"][data-id="${Number(button.dataset.ledgerId)}"]`;
+      return editRecord('ledger', Number(button.dataset.ledgerId));
+    };
   });
 }
 
@@ -2414,45 +2471,212 @@ async function renderInvoices(editId=null, handoff={}) {
   attachInvoiceRowClicks();
 }
 
+function ledgerKindChip(kind) {
+  const normalized = normalizeLedgerKind(kind);
+  return `<span class="ledger-chip ledger-kind-${normalized}">${escapeHtml(ledgerKindLabel(normalized))}</span>`;
+}
+
+function ledgerLinkedRecord(entry) {
+  return [quoteName(entry.quote_id), invoiceName(entry.invoice_id)].filter(Boolean).join(' / ');
+}
+
+function ledgerSearchValue(entry) {
+  return [entry.entry_date, ledgerKindLabel(entry.kind), entry.category, entry.description, entry.business_type, clientName(entry.client_id), projectName(entry.project_id), quoteName(entry.quote_id), invoiceName(entry.invoice_id), entry.receipt_id ? 'receipt attached' : 'no receipt'].filter(Boolean).join(' ').toLowerCase();
+}
+
+function ledgerRecordAttributes(entry, extraClass='') {
+  return `class="${extraClass}" data-ledger-record data-ledger-id="${Number(entry.id)}" data-ledger-kind="${escapeHtml(normalizeLedgerKind(entry.kind))}" data-ledger-category="${escapeHtml(entry.category || '')}" data-ledger-client="${entry.client_id ? Number(entry.client_id) : ''}" data-ledger-year="${escapeHtml(String(entry.entry_date || '').slice(0, 4))}" data-ledger-search="${escapeHtml(ledgerSearchValue(entry))}"`;
+}
+
+function ledgerCardHtml(entry) {
+  const project = projectName(entry.project_id);
+  const linked = ledgerLinkedRecord(entry);
+  const context = entry.business_type === 'admin' ? 'Administrative entry' : (clientName(entry.client_id) || 'No client');
+  const receiptState = entry.receipt_id ? 'Receipt attached' : 'No receipt attached';
+  return `<article ${ledgerRecordAttributes(entry, 'ledger-record-card')}>
+    <button class="ledger-card-open" type="button" data-ledger-id="${Number(entry.id)}" aria-label="Open ${escapeHtml(ledgerKindLabel(entry.kind))} ledger entry for ${escapeHtml(entry.category)}">
+      <span class="ledger-card-top"><strong>${shortDate(entry.entry_date)}</strong>${ledgerKindChip(entry.kind)}</span>
+      <span class="ledger-card-category"><strong>${escapeHtml(entry.category)}</strong>${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</span>
+      <span class="ledger-card-amount ledger-amount-${escapeHtml(normalizeLedgerKind(entry.kind))}">${money(entry.amount)}</span>
+      <span class="ledger-card-context"><b>${escapeHtml(context)}</b>${project ? `<span>${escapeHtml(project)}</span>` : ''}${linked ? `<span>${escapeHtml(linked)}</span>` : ''}<small>${receiptState}</small></span>
+    </button>
+    <div class="ledger-card-actions">${entry.receipt_id ? `<div class="ledger-card-document">${receiptPreviewButton(entry.receipt_id, 'Preview Receipt')}</div>` : ''}${rowActions('ledger', entry.id)}</div>
+  </article>`;
+}
+
+function ledgerListEmptyHtml({filtered=false}={}) {
+  if (filtered) return `<section class="panel ledger-list-empty hidden" id="ledgerFilterEmpty"><strong>No Ledger entries match these filters.</strong><span>Try another search or reset the filters.</span><button class="ghost" type="button" data-reset-ledger-filters>Reset Filters</button></section>`;
+  return `<section class="panel ledger-list-empty"><strong>No Ledger entries yet.</strong><span>Add income, cost of goods sold, or an expense to start the bookkeeping record.</span><button class="primary" id="emptyAddLedger" type="button">Add Ledger Entry</button></section>`;
+}
+
+function ledgerEditorShellHtml({editing=null, formId='ledgerForm', scopedClientId='', scopedProjectId='', clientLabel='', presetKind='', closeButtonId='', cancelButtonId=''}) {
+  const isEdit = Boolean(editing);
+  const clientId = editing?.client_id || scopedClientId || '';
+  const projectId = editing?.project_id || scopedProjectId || '';
+  const kind = normalizeLedgerKind(presetKind || editing?.kind || 'income');
+  const businessType = editing?.business_type || 'client';
+  const closeId = closeButtonId ? ` id="${closeButtonId}"` : '';
+  const cancelId = cancelButtonId ? ` id="${cancelButtonId}"` : '';
+  const clientField = scopedClientId
+    ? `<input type="hidden" name="client_id" value="${Number(scopedClientId)}"><label class="ledger-field" data-ledger-client-wrap><span>Client</span><input value="${clientLabel}" disabled aria-label="Client"></label>`
+    : `<label class="ledger-field" data-ledger-client-wrap><span>Client</span><select name="client_id" id="${formId}Client">${clientOptions(clientId)}</select></label>`;
+  return `<div class="modal-card wide-modal ledger-editor-shell"><header class="modal-header ledger-editor-header"><div><p class="ledger-editor-eyebrow">Bookkeeping workflow</p><h2 id="${formId}Title">${isEdit ? 'Edit Ledger Entry' : 'Add Ledger Entry'}</h2><p>${isEdit ? 'Review the entry details, business context, and documentation.' : 'Record income, cost of goods sold, or an expense.'}</p></div><button class="ghost modal-close"${closeId} type="button" aria-label="Close ledger form">×</button></header>
+    <form id="${formId}" class="ledger-editor-form" enctype="multipart/form-data">
+      <div class="ledger-editor-scroll">
+        <section class="ledger-editor-section" aria-labelledby="${formId}DetailsHeading"><div class="ledger-editor-section-head"><span>1</span><div><h3 id="${formId}DetailsHeading">Entry Details</h3><p>Record the date, account type, category, amount, and purpose.</p></div><span class="ledger-kind-preview">${ledgerKindChip(kind)}</span></div><div class="ledger-editor-grid ledger-details-grid">
+          <label class="ledger-field"><span>Date</span><input name="entry_date" type="date" required value="${escapeHtml(editing?.entry_date || todayIso())}"></label>
+          <label class="ledger-field"><span>Account Type</span><select name="kind"><option value="income">Income</option><option value="cogs">Cost of Goods Sold</option><option value="expense">Expenses</option></select></label>
+          <label class="ledger-field"><span>Category</span><select name="category" required><option value="">Select category...</option></select></label>
+          <label class="ledger-field"><span>Amount</span><input name="amount" type="number" step="0.01" min="0" inputmode="decimal" required value="${escapeHtml(editing?.amount ?? '')}"></label>
+          <label class="ledger-field ledger-description-field"><span>Description</span><textarea name="description" rows="4" placeholder="What was this transaction for?">${escapeHtml(editing?.description)}</textarea></label>
+        </div></section>
+        <section class="ledger-editor-section" aria-labelledby="${formId}ContextHeading"><div class="ledger-editor-section-head"><span>2</span><div><h3 id="${formId}ContextHeading">Business Context</h3><p>Classify administrative activity or connect client work to its records.</p></div></div><div class="ledger-editor-grid ledger-context-grid">
+          <label class="ledger-field"><span>Business Type</span><select name="business_type"><option value="client">Client</option><option value="admin">Admin</option></select></label>
+          ${clientField}
+          <label class="ledger-field" data-ledger-project-wrap><span>Project</span><select name="project_id" id="${formId}Project">${projectOptions(projectId, clientId)}</select></label>
+          <label class="ledger-field" data-ledger-quote-wrap><span>Quote</span><select name="quote_id">${quoteOptions(editing?.quote_id, clientId, projectId)}</select></label>
+          <label class="ledger-field" data-ledger-invoice-wrap><span>Invoice</span><select name="invoice_id">${invoiceOptions(editing?.invoice_id, clientId, projectId)}</select></label>
+          <div class="ledger-context-summary" aria-live="polite"><small>Current context</small><strong data-ledger-context-title>${businessType === 'admin' ? 'Administrative entry' : (clientName(clientId) || clientLabel || 'Client entry')}</strong><span data-ledger-context-detail>${projectName(projectId) || 'No linked Project, Quote, or Invoice'}</span></div>
+        </div></section>
+        <section class="ledger-editor-section" aria-labelledby="${formId}ReceiptHeading"><div class="ledger-editor-section-head"><span>3</span><div><h3 id="${formId}ReceiptHeading">Receipt / Documentation</h3><p>Attach a receipt image or PDF, or review the existing document.</p></div></div><div class="ledger-receipt-panel">
+          <label class="ledger-file-field"><span>Receipt Photo or PDF</span><input name="receipt_file" type="file" accept="image/*,application/pdf"><small data-ledger-file-name>${isEdit ? 'Choose a new file to attach to this entry.' : 'No file selected.'}</small></label>
+          ${editing?.receipt_id ? `<div class="ledger-attached-receipt"><span><strong>Receipt attached</strong><small>Available for preview and the Ledger Entry Packet.</small></span>${receiptPreviewButton(editing.receipt_id, 'Preview Receipt')}</div>` : '<div class="ledger-no-receipt"><strong>No receipt attached</strong><span>You can save this entry without a document.</span></div>'}
+        </div></section>
+      </div>
+      <footer class="ledger-editor-actions"><button class="ghost ${cancelButtonId ? '' : 'quick-cancel'}" type="button"${cancelId}>Cancel</button>${isEdit ? `<button class="ghost" type="button" data-action="print" data-type="ledger" data-id="${Number(editing.id)}">Print Packet</button>` : ''}<button class="primary" type="submit">${isEdit ? 'Update Ledger Entry' : 'Save Ledger Entry'}</button></footer>
+    </form></div>`;
+}
+
+function wireLedgerEditor(container, {formId='ledgerForm', editing=null, clientId='', presetKind='', onSave}) {
+  const form = container.querySelector(`#${formId}`);
+  if (!form) return;
+  form.elements.kind.value = normalizeLedgerKind(presetKind || editing?.kind || 'income');
+  form.elements.business_type.value = editing?.business_type || 'client';
+  configureLedgerForm(form, {selectedCategory: editing?.category || '', clientId});
+  const kindPreview = container.querySelector('.ledger-kind-preview');
+  const contextTitle = container.querySelector('[data-ledger-context-title]');
+  const contextDetail = container.querySelector('[data-ledger-context-detail]');
+  const fileName = container.querySelector('[data-ledger-file-name]');
+  const fileInput = form.elements.receipt_file;
+  const updateKindPreview = () => { if (kindPreview) kindPreview.innerHTML = ledgerKindChip(form.elements.kind.value); };
+  const updateContext = () => {
+    const isAdmin = form.elements.business_type.value === 'admin';
+    const scopedClient = state.clients.find(item => Number(item.id) === Number(clientId));
+    const clientText = clientId ? (scopedClient?.name || `Client #${clientId}`) : (form.elements.client_id?.value ? form.elements.client_id.selectedOptions?.[0]?.textContent?.trim() : '');
+    const projectText = form.elements.project_id?.value ? form.elements.project_id.selectedOptions?.[0]?.textContent?.trim() : '';
+    const quoteText = form.elements.quote_id?.value ? form.elements.quote_id.selectedOptions?.[0]?.textContent?.trim() : '';
+    const invoiceText = form.elements.invoice_id?.value ? form.elements.invoice_id.selectedOptions?.[0]?.textContent?.trim() : '';
+    if (contextTitle) contextTitle.textContent = isAdmin ? 'Administrative entry' : (clientText || 'Client entry');
+    if (contextDetail) contextDetail.textContent = isAdmin ? 'No Client, Project, Quote, or Invoice links' : ([projectText, quoteText, invoiceText].filter(Boolean).join(' / ') || 'No linked Project, Quote, or Invoice');
+  };
+  form.elements.kind.addEventListener('change', updateKindPreview);
+  [form.elements.business_type, form.elements.client_id, form.elements.project_id, form.elements.quote_id, form.elements.invoice_id].forEach(control => control?.addEventListener('change', updateContext));
+  fileInput?.addEventListener('change', () => { if (fileName) fileName.textContent = fileInput.files?.[0]?.name || 'No file selected.'; });
+  updateKindPreview();
+  updateContext();
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const payload = normalizeLedgerPayload(clean(formData(form)));
+    delete payload.receipt_file;
+    if (clientId && payload.business_type === 'client') payload.client_id = Number(clientId);
+    await onSave(payload, form);
+  };
+}
+
+function attachLedgerListControls(totalCount) {
+  const search = root.querySelector('#ledgerSearch');
+  const kind = root.querySelector('#ledgerKindFilter');
+  const category = root.querySelector('#ledgerCategoryFilter');
+  const client = root.querySelector('#ledgerClientFilter');
+  const year = root.querySelector('#ledgerYearFilter');
+  const tableRows = [...root.querySelectorAll('.ledger-table [data-ledger-record]')];
+  const cards = [...root.querySelectorAll('.ledger-mobile-list [data-ledger-record]')];
+  const empty = root.querySelector('#ledgerFilterEmpty');
+  const resultCount = root.querySelector('#ledgerResultCount');
+  const indicator = root.querySelector('#ledgerFilterIndicator');
+  const desktopList = root.querySelector('.ledger-desktop-list');
+  const mobileList = root.querySelector('.ledger-mobile-list');
+  const matches = record => {
+    const query = search.value.trim().toLowerCase();
+    return (!query || record.dataset.ledgerSearch.includes(query))
+      && (kind.value === 'all' || record.dataset.ledgerKind === kind.value)
+      && (category.value === 'all' || record.dataset.ledgerCategory === category.value)
+      && (client.value === 'all' || record.dataset.ledgerClient === client.value)
+      && (year.value === 'all' || record.dataset.ledgerYear === year.value);
+  };
+  const apply = () => {
+    state.ledgerKindFilter = kind.value;
+    state.ledgerCategoryFilter = category.value;
+    state.ledgerClientFilter = client.value;
+    state.ledgerYearFilter = year.value;
+    let shown = 0;
+    cards.forEach(card => { const visible = matches(card); card.classList.toggle('hidden', !visible); if (visible) shown += 1; });
+    tableRows.forEach(row => row.classList.toggle('hidden', !matches(row)));
+    const controls = [kind, category, client, year];
+    const hasQueryOrFilter = Boolean(search.value.trim()) || controls.some(control => control.value !== 'all');
+    empty?.classList.toggle('hidden', shown > 0 || !hasQueryOrFilter);
+    desktopList?.classList.toggle('ledger-no-matches', shown === 0 && hasQueryOrFilter);
+    mobileList?.classList.toggle('ledger-no-matches', shown === 0 && hasQueryOrFilter);
+    if (resultCount) resultCount.textContent = hasQueryOrFilter ? `${shown} of ${totalCount} ledger entr${totalCount === 1 ? 'y' : 'ies'}` : `${totalCount} ledger entr${totalCount === 1 ? 'y' : 'ies'}`;
+    const activeFilters = controls.filter(control => control.value !== 'all').length;
+    if (indicator) {
+      indicator.textContent = `${activeFilters} active filter${activeFilters === 1 ? '' : 's'}`;
+      indicator.classList.toggle('hidden', activeFilters === 0);
+    }
+  };
+  [search, kind, category, client, year].forEach(control => control?.addEventListener(control === search ? 'input' : 'change', apply));
+  root.querySelectorAll('[data-reset-ledger-filters]').forEach(button => button.addEventListener('click', () => {
+    search.value = '';
+    kind.value = 'all'; category.value = 'all'; client.value = 'all'; year.value = 'all';
+    apply();
+    search.focus();
+  }));
+  apply();
+}
+
 async function renderLedger(editId=null) {
+  setLedgerEditorPageState(false);
   const data = await api('/api/ledger?page_size=100');
-  const editing = editId ? data.items.find(i => i.id === editId) : null;
-  const editingKind = normalizeLedgerKind(editing?.kind);
-  const editingBusinessType = editing?.business_type || 'client';
-  root.innerHTML = `<div class="page-actions"><label class="search-field compact-search">Search<input id="ledgerSearch" type="search" placeholder="Search ledger..."></label><button class="primary" id="openLedgerModal" type="button">+ Add Ledger Entry</button></div>
-  ${table(['Date','Account Type','Category','Amount','Client','Project','Quote','Invoice','Receipt','Description','Actions'], data.items.map(e => [e.entry_date,ledgerKindLabel(e.kind),escapeHtml(e.category),money(e.amount),escapeHtml(clientName(e.client_id)),escapeHtml(projectName(e.project_id)),escapeHtml(quoteName(e.quote_id)),escapeHtml(invoiceName(e.invoice_id)),e.receipt_id ? receiptPreviewButton(e.receipt_id) : '—',escapeHtml(e.description),rowActions('ledger', e.id)]))}
-  <div id="ledgerModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="ledgerModalTitle"><div class="modal-card"><div class="modal-header"><div><h2 id="ledgerModalTitle">${editing ? 'Edit Ledger Entry' : 'Add Ledger Entry'}</h2><p>${editing ? 'Update this financial entry.' : 'Add an income, cost of goods sold, or expense entry.'}</p></div><button class="ghost modal-close" id="closeLedgerModal" type="button" aria-label="Close ledger form">×</button></div><form id="ledgerForm" class="form-grid" enctype="multipart/form-data">
-    <label class="ledger-field">Date<input name="entry_date" type="date" required value="${escapeHtml(editing?.entry_date || todayIso())}"></label><label class="ledger-field">Amount<input name="amount" type="number" step="0.01" required value="${escapeHtml(editing?.amount)}"></label>
-    <label class="ledger-field">Account Type<select name="kind"><option value="income">Income</option><option value="cogs">Cost of Goods Sold</option><option value="expense">Expenses</option></select></label>
-    <label class="ledger-field">Business Type<select name="business_type"><option value="client">Client</option><option value="admin">Admin</option></select></label>
-    <label class="ledger-field">Category<select name="category" required><option value="">Select category...</option></select></label>
-    <label class="ledger-field" data-ledger-client-wrap>Client<select name="client_id" id="ledgerClient">${clientOptions(editing?.client_id)}</select></label><label class="ledger-field" data-ledger-project-wrap>Project<select name="project_id" id="ledgerProject">${projectOptions(editing?.project_id, editing?.client_id)}</select></label>
-    <label class="ledger-field" data-ledger-quote-wrap>Quote<select name="quote_id">${quoteOptions(editing?.quote_id, editing?.client_id, editing?.project_id)}</select></label><label class="ledger-field" data-ledger-invoice-wrap>Invoice<select name="invoice_id">${invoiceOptions(editing?.invoice_id, editing?.client_id, editing?.project_id)}</select></label>
-    <label class="full ledger-field ledger-wide-field ledger-receipt-field">Receipt Photo/PDF<input name="receipt_file" type="file" accept="image/*,application/pdf"></label>${editing?.receipt_id ? `<div class="full muted ledger-attached-receipt">Attached receipt: ${receiptPreviewButton(editing.receipt_id, 'Preview receipt')}</div>` : ''}
-    <label class="full ledger-field ledger-wide-field ledger-description-field">Description<textarea name="description" rows="3" placeholder="Ledger entry details">${escapeHtml(editing?.description)}</textarea></label><div class="form-actions ledger-modal-actions"><button class="ghost" type="button" id="cancelLedgerModal">Cancel</button><button class="primary" type="submit">${editing ? 'Update Ledger Entry' : 'Save Ledger Entry'}</button></div>
-  </form></div></div>`;
-  const ledgerTableWrap = root.querySelector('.table-wrap');
-  ledgerTableWrap?.classList.add('ledger-table');
-  root.querySelectorAll('.ledger-table tbody tr').forEach((row, index) => {
-    const entry = data.items[index];
-    if (!entry) return;
-    row.classList.add('ledger-record-row');
-    row.setAttribute('role', 'button');
-    row.tabIndex = 0;
-    row.dataset.ledgerId = Number(entry.id);
-    row.dataset.businessType = entry.business_type || 'client';
-    row.querySelectorAll('td').forEach(cell => {
-      const label = cell.dataset.label;
-      if (['Client', 'Project', 'Quote', 'Invoice'].includes(label) && !cell.textContent.trim()) {
-        cell.classList.add('ledger-empty-link-cell');
-      }
-    });
+  const editing = editId ? data.items.find(item => Number(item.id) === Number(editId)) : null;
+  const categories = [...new Set(data.items.map(item => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const years = [...new Set(data.items.map(item => String(item.entry_date || '').slice(0, 4)).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  const clientFilterOptions = state.clients.map(item => `<option value="${Number(item.id)}">${escapeHtml(item.name)}</option>`).join('');
+  const categoryFilterOptions = categories.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
+  const yearFilterOptions = years.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
+  const ledgerRows = data.items.map(entry => {
+    const project = projectName(entry.project_id);
+    const client = entry.business_type === 'admin' ? 'Administrative' : (clientName(entry.client_id) || 'No client');
+    const linked = ledgerLinkedRecord(entry);
+    return [shortDate(entry.entry_date), ledgerKindChip(entry.kind), `<div class="ledger-category-cell"><strong>${escapeHtml(entry.category)}</strong>${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</div>`, `<div class="ledger-context-cell"><strong>${escapeHtml(client)}</strong>${project ? `<span>${escapeHtml(project)}</span>` : ''}</div>`, linked ? escapeHtml(linked) : '<span class="ledger-empty-link">No linked record</span>', `<strong class="ledger-amount ledger-amount-${escapeHtml(normalizeLedgerKind(entry.kind))}">${money(entry.amount)}</strong>`, entry.receipt_id ? receiptPreviewButton(entry.receipt_id, 'Preview') : '<span class="ledger-empty-link">None</span>', rowActions('ledger', entry.id)];
   });
-  ledgerForm.kind.value = editingKind; ledgerForm.business_type.value = editingBusinessType;
-  configureLedgerForm(ledgerForm, { selectedCategory: editing?.category || '' });
-  ledgerForm.onsubmit = async e => { e.preventDefault(); const payload = normalizeLedgerPayload(clean(formData(ledgerForm))); delete payload.receipt_file; try { await saveLedgerEntryWithReceipt(ledgerForm, payload, editing); show(editing ? 'Ledger entry updated' : 'Ledger entry saved'); await renderLedger(); } catch (err) { alert(err.message); } };
-  setupModal('ledgerModal','openLedgerModal','closeLedgerModal','cancelLedgerModal',editing,renderLedger,'input[name="entry_date"]');
-  attachPageSearch('ledgerSearch');
+  const rowAttributes = data.items.map(entry => `${ledgerRecordAttributes(entry, 'ledger-record-row')} role="button" tabindex="0"`);
+  const listHtml = data.items.length
+    ? `<div class="ledger-desktop-list">${table(['Date','Account Type','Category / Description','Client / Project','Linked Record','Amount','Receipt','Actions'], ledgerRows, 'ledger-table', rowAttributes)}</div><div class="ledger-mobile-list" aria-label="Ledger entries">${data.items.map(ledgerCardHtml).join('')}</div>${ledgerListEmptyHtml({filtered:true})}`
+    : ledgerListEmptyHtml();
+  root.innerHTML = `<section class="ledger-list-controls panel"><div class="ledger-list-primary"><label class="search-field compact-search">Search Ledger<input id="ledgerSearch" type="search" placeholder="Description, category, Client, Project, Quote, or Invoice"></label><button class="primary" id="openLedgerModal" type="button">Add Ledger Entry</button></div><div class="ledger-filter-row"><label class="filter-field">Account Type<select id="ledgerKindFilter"><option value="all">All Account Types</option><option value="income">Income</option><option value="cogs">Cost of Goods Sold</option><option value="expense">Expenses</option></select></label><label class="filter-field">Category<select id="ledgerCategoryFilter"><option value="all">All Categories</option>${categoryFilterOptions}</select></label><label class="filter-field">Client<select id="ledgerClientFilter"><option value="all">All Clients</option>${clientFilterOptions}</select></label><label class="filter-field">Year<select id="ledgerYearFilter"><option value="all">All Years</option>${yearFilterOptions}</select></label><button class="ghost" type="button" data-reset-ledger-filters>Reset Filters</button><span class="ledger-filter-indicator hidden" id="ledgerFilterIndicator"></span><span class="ledger-result-count" id="ledgerResultCount">${data.items.length} ledger entr${data.items.length === 1 ? 'y' : 'ies'}</span></div></section>
+    ${listHtml}
+    <div id="ledgerModal" class="modal-backdrop ledger-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="ledgerFormTitle">${ledgerEditorShellHtml({editing, closeButtonId:'closeLedgerModal', cancelButtonId:'cancelLedgerModal'})}</div>`;
+  [
+    ['#ledgerKindFilter', state.ledgerKindFilter],
+    ['#ledgerCategoryFilter', state.ledgerCategoryFilter],
+    ['#ledgerClientFilter', state.ledgerClientFilter],
+    ['#ledgerYearFilter', state.ledgerYearFilter],
+  ].forEach(([selector, value]) => {
+    const control = root.querySelector(selector);
+    if (!control) return;
+    control.value = value;
+    if (!control.value) control.value = 'all';
+  });
+  wireLedgerEditor(root, {editing, onSave: async (payload, form) => {
+    try {
+      await saveLedgerEntryWithReceipt(form, payload, editing);
+      show(editing ? 'Ledger entry updated' : 'Ledger entry saved');
+      await root.querySelector('#ledgerModal')._closeLedgerEditor();
+    } catch (err) { alert(err.message); }
+  }});
+  setupLedgerModal({editing, rerender: renderLedger});
+  root.querySelector('#emptyAddLedger')?.addEventListener('click', () => root.querySelector('#openLedgerModal')?.click());
+  if (data.items.length) attachLedgerListControls(data.items.length);
   attachRowActions();
   attachLedgerRowClicks();
 }
@@ -2725,11 +2949,14 @@ function closeClientQuickModal() {
   if (modal._quoteEscapeHandler) document.removeEventListener('keydown', modal._quoteEscapeHandler);
   if (modal._invoiceEscapeHandler) document.removeEventListener('keydown', modal._invoiceEscapeHandler);
   if (modal._laborEscapeHandler) document.removeEventListener('keydown', modal._laborEscapeHandler);
+  if (modal._ledgerEscapeHandler) document.removeEventListener('keydown', modal._ledgerEscapeHandler);
   const closesInvoiceEditor = modal.classList.contains('invoice-editor-backdrop');
   const closesLaborEditor = modal.classList.contains('labor-editor-backdrop');
-  if (modal.classList.contains('quote-editor-backdrop') || closesInvoiceEditor || closesLaborEditor) [...root.children].forEach(child => { child.inert = false; });
+  const closesLedgerEditor = modal.classList.contains('ledger-editor-backdrop');
+  if (modal.classList.contains('quote-editor-backdrop') || closesInvoiceEditor || closesLaborEditor || closesLedgerEditor) [...root.children].forEach(child => { child.inert = false; });
   if (closesInvoiceEditor) setInvoiceEditorPageState(false);
   if (closesLaborEditor) setLaborEditorPageState(false);
+  if (closesLedgerEditor) setLedgerEditorPageState(false);
   const returnFocus = modal._quoteReturnFocus;
   modal.remove();
   setTimeout(() => returnFocus?.isConnected && returnFocus.focus?.(), 0);
@@ -2886,24 +3113,21 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
   }
 
   if (type === 'ledger') {
-    const editingKind = normalizeLedgerKind(editing?.kind);
-    const editingBusinessType = editing?.business_type || 'client';
-    wrapper.innerHTML = `<div class="modal-card"><div class="modal-header"><div><h2>${isEdit ? 'Edit Ledger Entry' : 'Add Ledger Entry'}</h2><p>${isEdit ? 'Update this ledger entry without leaving the client.' : `Add a ledger entry for ${clientLabel}.`}</p></div><button class="ghost modal-close" type="button" aria-label="Close ledger form">×</button></div><form id="clientLedgerForm" class="form-grid" enctype="multipart/form-data">
-      <label>Date<input name="entry_date" type="date" required value="${escapeHtml(editing?.entry_date || todayIso())}"></label><label>Amount<input name="amount" type="number" step="0.01" required value="${escapeHtml(editing?.amount ?? '')}"></label>
-      <label>Account Type<select name="kind"><option value="income">Income</option><option value="cogs">Cost of Goods Sold</option><option value="expense">Expenses</option></select></label><label>Business Type<select name="business_type"><option value="client">Client</option><option value="admin">Admin</option></select></label>
-      <label>Category<select name="category" required><option value="">Select category...</option></select></label><input type="hidden" name="client_id" value="${clientId}"><label data-ledger-client-wrap>Client<input value="${clientLabel}" disabled></label>
-      <label data-ledger-project-wrap>Project<select name="project_id">${projectOptions(scopedProjectId, clientId)}</select></label>
-      <label data-ledger-quote-wrap>Quote<select name="quote_id">${quoteOptions(editing?.quote_id, clientId, scopedProjectId)}</select></label><label data-ledger-invoice-wrap>Invoice<select name="invoice_id">${invoiceOptions(editing?.invoice_id, clientId, scopedProjectId)}</select></label>
-      <label class="full">Receipt Photo/PDF<input name="receipt_file" type="file" accept="image/*,application/pdf"></label>${editing?.receipt_id ? `<div class="full muted">Attached receipt: ${receiptPreviewButton(editing.receipt_id, 'Preview receipt')}</div>` : ''}
-      <label class="full">Description<textarea name="description">${escapeHtml(editing?.description)}</textarea></label>
-      <div class="form-actions"><button class="primary" type="submit">${isEdit ? 'Update Ledger Entry' : 'Save Ledger Entry'}</button><button class="ghost quick-cancel" type="button">Cancel</button></div>
-    </form></div>`;
+    wrapper.classList.add('ledger-editor-backdrop');
+    wrapper.setAttribute('aria-labelledby', 'clientLedgerFormTitle');
+    wrapper.innerHTML = ledgerEditorShellHtml({editing, formId:'clientLedgerForm', scopedClientId:clientId, scopedProjectId, clientLabel, presetKind:opts.ledgerKind || '', closeButtonId:'closeClientLedgerModal'});
     root.appendChild(wrapper);
-    const form = wrapper.querySelector('#clientLedgerForm');
-    form.kind.value = opts.ledgerKind || editingKind;
-    form.business_type.value = editingBusinessType;
-    configureLedgerForm(form, { selectedCategory: editing?.category || '', clientId });
-    form.onsubmit = async e => { e.preventDefault(); const payload = normalizeLedgerPayload(clean(formData(form))); delete payload.receipt_file; if (payload.business_type === 'client') payload.client_id = Number(clientId); try { await saveLedgerEntryWithReceipt(form, payload, isEdit ? editing : null); await closeAfter('ledger', isEdit ? 'Ledger entry updated' : 'Ledger entry saved'); } catch(err) { alert(err.message); } };
+    wrapper._quoteReturnFocus = returnFocus;
+    [...root.children].filter(child => child !== wrapper).forEach(child => { child.inert = true; });
+    setLedgerEditorPageState(true);
+    wrapper._ledgerEscapeHandler = event => { if (event.key === 'Escape') closeClientQuickModal(); };
+    document.addEventListener('keydown', wrapper._ledgerEscapeHandler);
+    wireLedgerEditor(wrapper, {formId:'clientLedgerForm', editing, clientId, presetKind:opts.ledgerKind || '', onSave: async (payload, form) => {
+      try {
+        await saveLedgerEntryWithReceipt(form, payload, isEdit ? editing : null);
+        await closeAfter('ledger', isEdit ? 'Ledger entry updated' : 'Ledger entry saved');
+      } catch(err) { alert(err.message); }
+    }});
   }
 
   if (type === 'receipts') {

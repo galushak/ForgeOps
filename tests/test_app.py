@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
-    assert "forgeops-phase-5-labor" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
+    assert "forgeops-phase-6-ledger" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
+    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
-    assert "forgeops-phase-5-labor" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
+    assert "forgeops-phase-6-ledger" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
 
     for marker in [
@@ -284,10 +284,10 @@ def test_frontend_phase_5_labor_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in html
-    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
-    assert "forgeops-phase-5-labor" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
+    assert "forgeops-phase-6-ledger" in service_worker
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase5-labor" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in service_worker
 
     for marker in [
         "Search Labor",
@@ -336,6 +336,75 @@ def test_frontend_phase_5_labor_workflow_characterization():
         "@media (max-width: 360px)",
     ]:
         assert marker in phase5_css
+
+
+def test_frontend_phase_6_ledger_workflow_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    phase6_css = (static_dir / "phase6-ledger.css").read_text(encoding="utf-8")
+    service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
+
+    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in html
+    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in html
+    assert "forgeops-phase-6-ledger" in service_worker
+    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase6-ledger" in service_worker
+
+    for marker in [
+        "Search Ledger",
+        "ledgerKindFilter",
+        "ledgerCategoryFilter",
+        "ledgerClientFilter",
+        "ledgerYearFilter",
+        "ledgerResultCount",
+        "ledger-desktop-list",
+        "ledger-mobile-list",
+        "ledgerCardHtml",
+        "ledgerKindChip",
+        "No Ledger entries yet.",
+        "No Ledger entries match these filters.",
+        "Entry Details",
+        "Business Context",
+        "Receipt / Documentation",
+        "ledgerEditorShellHtml",
+        "wireLedgerEditor",
+        "saveLedgerEntryWithReceipt",
+        "Print Packet",
+        "setLedgerEditorPageState(true)",
+        "setLedgerEditorPageState(false)",
+        "mobileNavigation.inert = active",
+        "QUICK_CREATE_ACTIONS",
+        "openClientQuickModal(project.client_id, 'ledger'",
+        "returnToDashboard: true",
+    ]:
+        assert marker in javascript
+
+    assert "ledgerEditorShellHtml({editing, formId:'clientLedgerForm'" in javascript
+    assert "normalizeLedgerPayload(clean(formData(form)))" in javascript
+    assert "accept=\"image/*,application/pdf\"" in javascript
+    ledger_open_wiring = javascript[
+        javascript.index("function attachLedgerRowClicks") : javascript.index("function attachLaborRowClicks")
+    ]
+    assert ".ledger-card-open[data-ledger-id]" in ledger_open_wiring
+    assert "state.ledgerReturnFocusSelector" in ledger_open_wiring
+
+    for marker in [
+        ".ledger-desktop-list",
+        ".ledger-mobile-list",
+        ".ledger-record-card",
+        ".ledger-chip",
+        ".ledger-editor-shell",
+        ".ledger-editor-actions",
+        "body.ledger-editor-open .mobile-bottom-nav",
+        "visibility: hidden",
+        "pointer-events: none",
+        "min-height: 100dvh",
+        "env(safe-area-inset-bottom",
+        "@media (max-width: 700px)",
+        "@media (max-width: 360px)",
+    ]:
+        assert marker in phase6_css
 
 
 def test_health(client):
