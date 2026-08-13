@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
-    assert "forgeops-phase-8-settings" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
+    assert "forgeops-v2-final" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
-    assert "forgeops-phase-8-settings" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
+    assert "forgeops-v2-final" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
 
     for marker in [
@@ -283,11 +283,11 @@ def test_frontend_phase_5_labor_workflow_characterization():
     phase5_css = (static_dir / "phase5-labor.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in html
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
-    assert "forgeops-phase-8-settings" in service_worker
-    assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
+    assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in html
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
+    assert "forgeops-v2-final" in service_worker
+    assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
 
     for marker in [
         "Search Labor",
@@ -332,7 +332,7 @@ def test_frontend_phase_5_labor_workflow_characterization():
         "pointer-events: none",
         "min-height: 100dvh",
         "env(safe-area-inset-bottom",
-        "@media (max-width: 700px)",
+        "@media (max-width: 800px)",
         "@media (max-width: 360px)",
     ]:
         assert marker in phase5_css
@@ -345,11 +345,11 @@ def test_frontend_phase_6_ledger_workflow_characterization():
     phase6_css = (static_dir / "phase6-ledger.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in html
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
-    assert "forgeops-phase-8-settings" in service_worker
-    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
+    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger-final" in html
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
+    assert "forgeops-v2-final" in service_worker
+    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
 
     for marker in [
         "Search Ledger",
@@ -401,7 +401,7 @@ def test_frontend_phase_6_ledger_workflow_characterization():
         "pointer-events: none",
         "min-height: 100dvh",
         "env(safe-area-inset-bottom",
-        "@media (max-width: 700px)",
+        "@media (max-width: 800px)",
         "@media (max-width: 360px)",
     ]:
         assert marker in phase6_css
@@ -415,10 +415,10 @@ def test_frontend_phase_7_reports_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in html
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
-    assert "forgeops-phase-8-settings" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
+    assert "forgeops-v2-final" in service_worker
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
 
     for marker in [
         "function reportMetricHtml",
@@ -468,13 +468,35 @@ def test_frontend_phase_8_settings_backup_workflow_characterization():
     html = (static_dir / "index.html").read_text(encoding="utf-8")
     javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
     phase8_css = (static_dir / "phase8-settings.css").read_text(encoding="utf-8")
+    final_css = (static_dir / "forgeopsv2-final.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in html
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
-    assert "forgeops-phase-8-settings" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
+    assert "forgeops-v2-final" in service_worker
     assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
+    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
+    assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in html
+    assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in service_worker
+
+    for marker in [
+        "setQuoteEditorPageState(true)",
+        "setQuoteEditorPageState(false)",
+        "function ledgerLinkedRecordHtml",
+        "ledgerLinkedRecordHtml(entry)",
+    ]:
+        assert marker in javascript
+
+    for marker in [
+        ".quote-list-controls select",
+        ".invoice-list-controls select",
+        ".labor-list-controls select",
+        ".ledger-list-controls select",
+        ".ledger-linked-record-cell",
+        "body.quote-editor-open .mobile-bottom-nav",
+        "pointer-events: none",
+    ]:
+        assert marker in final_css
 
     admin_workflow = javascript[
         javascript.index("function settingsRatePercent") : javascript.index(

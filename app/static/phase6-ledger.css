@@ -304,7 +304,7 @@ body.ledger-editor-open { overflow: hidden; }
   .ledger-result-count { grid-column: auto; justify-self: end; }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 800px) {
   body.ledger-editor-open .mobile-bottom-nav {
     visibility: hidden;
     pointer-events: none;

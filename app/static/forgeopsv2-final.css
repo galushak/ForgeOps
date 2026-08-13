@@ -1,0 +1,91 @@
+/* ForgeOpsV2 final cross-workflow consistency and responsive hardening. */
+
+.quote-list-controls,
+.invoice-list-controls,
+.labor-list-controls,
+.ledger-list-controls,
+.quote-list-primary,
+.invoice-list-primary-controls,
+.labor-list-primary,
+.ledger-list-primary,
+.quote-filter-row,
+.invoice-filter-row,
+.labor-filter-row,
+.ledger-filter-row,
+.quote-list-controls label,
+.invoice-list-controls label,
+.labor-list-controls label,
+.ledger-list-controls label {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.quote-list-controls select,
+.invoice-list-controls select,
+.labor-list-controls select,
+.ledger-list-controls select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ledger-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.ledger-table > table {
+  min-width: 1060px;
+  table-layout: fixed;
+}
+
+.ledger-table > table th:nth-child(1) { width: 8%; }
+.ledger-table > table th:nth-child(2) { width: 11%; }
+.ledger-table > table th:nth-child(3) { width: 18%; }
+.ledger-table > table th:nth-child(4) { width: 17%; }
+.ledger-table > table th:nth-child(5) { width: 20%; }
+.ledger-table > table th:nth-child(6) { width: 9%; }
+.ledger-table > table th:nth-child(7) { width: 7%; }
+.ledger-table > table th:nth-child(8) { width: 10%; }
+
+.ledger-linked-record-cell {
+  min-width: 0;
+  display: grid;
+  gap: .35rem;
+}
+
+.ledger-linked-record {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: start;
+  gap: .4rem;
+}
+
+.ledger-linked-record > b {
+  color: var(--text-muted);
+  font-size: .68rem;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.ledger-linked-record > span {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: .78rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+body.quote-editor-open { overflow: hidden; }
+
+@media (max-width: 800px) {
+  body.quote-editor-open .mobile-bottom-nav {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}

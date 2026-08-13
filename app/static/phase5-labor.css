@@ -352,7 +352,7 @@
   .labor-desktop-list table { min-width: 1040px; }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 800px) {
   body.labor-editor-open { overflow: hidden; }
   body.labor-editor-open .mobile-bottom-nav {
     visibility: hidden;

@@ -1285,12 +1285,14 @@ function setupQuoteModal({editing=null, rerender}) {
     if (!state.quoteReturnFocusSelector) state.quoteReturnFocusSelector = '#openQuoteModal';
     modal.classList.remove('hidden');
     setBackgroundInert(true);
+    setQuoteEditorPageState(true);
     document.addEventListener('keydown', onKeydown);
     setTimeout(() => modal.querySelector(editing ? 'input[name="quote_number"]' : 'input[name="title"]')?.focus(), 0);
   };
   const closeModal = async () => {
     document.removeEventListener('keydown', onKeydown);
     setBackgroundInert(false);
+    setQuoteEditorPageState(false);
     const focusSelector = state.quoteReturnFocusSelector || '#openQuoteModal';
     state.quoteReturnFocusSelector = '';
     await Promise.resolve(rerender());
@@ -1301,6 +1303,15 @@ function setupQuoteModal({editing=null, rerender}) {
   modal.querySelector('#cancelQuoteModal')?.addEventListener('click', closeModal);
   modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
   if (editing) openModal();
+}
+
+function setQuoteEditorPageState(active) {
+  document.body.classList.toggle('quote-editor-open', active);
+  const mobileNavigation = document.querySelector('.mobile-bottom-nav');
+  if (!mobileNavigation) return;
+  mobileNavigation.inert = active;
+  if (active) mobileNavigation.setAttribute('aria-hidden', 'true');
+  else mobileNavigation.removeAttribute('aria-hidden');
 }
 
 function setInvoiceEditorPageState(active) {
@@ -2353,6 +2364,7 @@ async function renderProjectDetail(projectId, tab=state.projectDetailTab || 'ove
 }
 
 async function renderQuotes(editId=null) {
+  setQuoteEditorPageState(false);
   const data = await api('/api/quotes?page_size=100');
   const settingsResponse = await api('/api/admin/settings');
   const settings = settingsResponse.settings || {};
@@ -2478,6 +2490,17 @@ function ledgerKindChip(kind) {
 
 function ledgerLinkedRecord(entry) {
   return [quoteName(entry.quote_id), invoiceName(entry.invoice_id)].filter(Boolean).join(' / ');
+}
+
+function ledgerLinkedRecordHtml(entry) {
+  const quote = quoteName(entry.quote_id);
+  const invoice = invoiceName(entry.invoice_id);
+  const fullReference = [quote, invoice].filter(Boolean).join(' / ');
+  if (!fullReference) return '<span class="ledger-empty-link">No linked record</span>';
+  const linkedRow = (label, value) => value
+    ? `<span class="ledger-linked-record"><b>${label}</b><span>${escapeHtml(value)}</span></span>`
+    : '';
+  return `<span class="ledger-linked-record-cell" title="${escapeHtml(fullReference)}">${linkedRow('Quote', quote)}${linkedRow('Invoice', invoice)}</span>`;
 }
 
 function ledgerSearchValue(entry) {
@@ -2646,8 +2669,7 @@ async function renderLedger(editId=null) {
   const ledgerRows = data.items.map(entry => {
     const project = projectName(entry.project_id);
     const client = entry.business_type === 'admin' ? 'Administrative' : (clientName(entry.client_id) || 'No client');
-    const linked = ledgerLinkedRecord(entry);
-    return [shortDate(entry.entry_date), ledgerKindChip(entry.kind), `<div class="ledger-category-cell"><strong>${escapeHtml(entry.category)}</strong>${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</div>`, `<div class="ledger-context-cell"><strong>${escapeHtml(client)}</strong>${project ? `<span>${escapeHtml(project)}</span>` : ''}</div>`, linked ? escapeHtml(linked) : '<span class="ledger-empty-link">No linked record</span>', `<strong class="ledger-amount ledger-amount-${escapeHtml(normalizeLedgerKind(entry.kind))}">${money(entry.amount)}</strong>`, entry.receipt_id ? receiptPreviewButton(entry.receipt_id, 'Preview') : '<span class="ledger-empty-link">None</span>', rowActions('ledger', entry.id)];
+    return [shortDate(entry.entry_date), ledgerKindChip(entry.kind), `<div class="ledger-category-cell"><strong>${escapeHtml(entry.category)}</strong>${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</div>`, `<div class="ledger-context-cell"><strong>${escapeHtml(client)}</strong>${project ? `<span>${escapeHtml(project)}</span>` : ''}</div>`, ledgerLinkedRecordHtml(entry), `<strong class="ledger-amount ledger-amount-${escapeHtml(normalizeLedgerKind(entry.kind))}">${money(entry.amount)}</strong>`, entry.receipt_id ? receiptPreviewButton(entry.receipt_id, 'Preview') : '<span class="ledger-empty-link">None</span>', rowActions('ledger', entry.id)];
   });
   const rowAttributes = data.items.map(entry => `${ledgerRecordAttributes(entry, 'ledger-record-row')} role="button" tabindex="0"`);
   const listHtml = data.items.length
@@ -2950,10 +2972,12 @@ function closeClientQuickModal() {
   if (modal._invoiceEscapeHandler) document.removeEventListener('keydown', modal._invoiceEscapeHandler);
   if (modal._laborEscapeHandler) document.removeEventListener('keydown', modal._laborEscapeHandler);
   if (modal._ledgerEscapeHandler) document.removeEventListener('keydown', modal._ledgerEscapeHandler);
+  const closesQuoteEditor = modal.classList.contains('quote-editor-backdrop');
   const closesInvoiceEditor = modal.classList.contains('invoice-editor-backdrop');
   const closesLaborEditor = modal.classList.contains('labor-editor-backdrop');
   const closesLedgerEditor = modal.classList.contains('ledger-editor-backdrop');
-  if (modal.classList.contains('quote-editor-backdrop') || closesInvoiceEditor || closesLaborEditor || closesLedgerEditor) [...root.children].forEach(child => { child.inert = false; });
+  if (closesQuoteEditor || closesInvoiceEditor || closesLaborEditor || closesLedgerEditor) [...root.children].forEach(child => { child.inert = false; });
+  if (closesQuoteEditor) setQuoteEditorPageState(false);
   if (closesInvoiceEditor) setInvoiceEditorPageState(false);
   if (closesLaborEditor) setLaborEditorPageState(false);
   if (closesLedgerEditor) setLedgerEditorPageState(false);
@@ -3059,6 +3083,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     root.appendChild(wrapper);
     wrapper._quoteReturnFocus = returnFocus;
     [...root.children].filter(child => child !== wrapper).forEach(child => { child.inert = true; });
+    setQuoteEditorPageState(true);
     wrapper._quoteEscapeHandler = event => { if (event.key === 'Escape') closeClientQuickModal(); };
     document.addEventListener('keydown', wrapper._quoteEscapeHandler);
     const form = wrapper.querySelector('#clientQuoteForm');
