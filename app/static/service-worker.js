@@ -1,4 +1,4 @@
-const CACHE_NAME = 'forgeops-phase-7-reports';
+const CACHE_NAME = 'forgeops-phase-8-settings';
 const APP_SHELL = [
   '/',
   '/static/styles.css?v=0.8.12-phase2',
@@ -9,7 +9,8 @@ const APP_SHELL = [
   '/static/phase5-labor.css?v=0.8.12-phase5-labor',
   '/static/phase6-ledger.css?v=0.8.12-phase6-ledger',
   '/static/phase7-reports.css?v=0.8.12-phase7-reports',
-  '/static/js/app.js?v=0.8.12-phase7-reports',
+  '/static/phase8-settings.css?v=0.8.12-phase8-settings',
+  '/static/js/app.js?v=0.8.12-phase8-settings',
   '/static/manifest.webmanifest',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'

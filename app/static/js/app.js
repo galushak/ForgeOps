@@ -3468,58 +3468,313 @@ async function renderReports() {
   await run();
 }
 
+function settingsRatePercent(value, fallback) {
+  const number = Number(value ?? fallback);
+  if (!Number.isFinite(number)) return fallback;
+  const percent = number <= 1 ? number * 100 : number;
+  return String(Number(percent.toFixed(4)));
+}
+
+function settingsRatePayload(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) throw new Error('Enter a percentage from 0 to 100.');
+  return String(number <= 1 ? number : Number((number / 100).toFixed(6)));
+}
+
+function settingsRateMeaning(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) return 'Invalid percentage';
+  return `${Number((number <= 1 ? number * 100 : number).toFixed(4))}%`;
+}
+
+function backupCreatedLabel(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value || 'Unknown') : date.toLocaleString();
+}
+
+function backupHistoryHtml(items) {
+  if (!items.length) return `<div class="settings-empty-state"><strong>No backups created here yet.</strong><span>Create a backup to begin the local history.</span></div>`;
+  return `<div class="settings-backup-history-list">${items.map((backup, index) => `<article class="settings-backup-record ${index === 0 ? 'settings-backup-latest' : ''}"><div><strong>${escapeHtml(backup.filename)}</strong><span>${escapeHtml(backupCreatedLabel(backup.created_at))}</span></div><div><span>${Math.max(1, Math.round(Number(backup.file_size_bytes || 0) / 1024))} KB</span>${index === 0 ? '<b>Latest</b>' : ''}</div></article>`).join('')}</div>`;
+}
+
+async function downloadSettingsBackup(button, status) {
+  button.disabled = true;
+  status.className = 'settings-action-status';
+  status.textContent = 'Creating backup...';
+  try {
+    const response = await fetch('/api/admin/backups/download', {credentials:'same-origin'});
+    if (!response.ok) {
+      const payload = (response.headers.get('content-type') || '').includes('application/json') ? await response.json() : await response.text();
+      throw new Error(payload?.detail || payload?.message || payload || 'Unable to create backup');
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('content-disposition') || '';
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `fst-backup-${Date.now()}.zip`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    status.className = 'settings-action-status settings-status-success';
+    status.textContent = `${filename} is ready in your downloads.`;
+    show('Backup created');
+    const records = await api('/api/admin/backups');
+    document.querySelector('#backupHistory').innerHTML = backupHistoryHtml(records.items || []);
+  } catch (err) {
+    status.className = 'settings-action-status settings-status-error';
+    status.textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function renderAdmin() {
-  const records = await api('/api/admin/backups');
-  const dropdowns = await api('/api/admin/dropdowns?include_inactive=true&page_size=100');
-  const settingsResponse = await api('/api/admin/settings');
+  const [records, dropdowns, settingsResponse] = await Promise.all([
+    api('/api/admin/backups'),
+    api('/api/admin/dropdowns?include_inactive=true&page_size=100'),
+    api('/api/admin/settings'),
+  ]);
   const settings = settingsResponse.settings || {};
   const rows = dropdowns.items || [];
-  root.innerHTML = `<div class="panel"><h2>Create Full Backup</h2><p>Downloads a zip containing the SQLite database plus uploaded files and exports.</p><button id="backupBtn" class="primary">Download Full Backup</button></div>
-  <div class="panel"><h2>Restore Backup</h2><p class="error">Restore replaces the current database/uploads. A pre-restore backup is created automatically.</p><form id="restoreForm" class="form-grid" enctype="multipart/form-data"><label class="full">Backup ZIP<input name="file" type="file" accept=".zip" required></label><button id="restoreBtn" class="danger" type="submit">Restore Backup</button><p id="restoreStatus" class="full muted"></p></form></div>
-  <div class="panel"><h2>Business Settings</h2><p>Defaults used by quotes, invoices, labor, and reports.</p><form id="businessSettingsForm" class="form-grid">
-    <label>Company Name<input name="company_name" value="${escapeHtml(settings.company_name || 'Forged Systems LLC')}"></label>
-    <label>Default Labor Rate<input name="default_labor_rate" type="number" step="0.01" min="0" value="${escapeHtml(settings.default_labor_rate || '100.00')}"></label>
-    <label>Quote Markup %<input name="quote_markup_percent" type="number" step="0.01" min="0" value="${escapeHtml(settings.quote_markup_percent || '10')}"></label>
-    <label>Sales Tax Rate<input name="sales_tax_rate" type="number" min="0" max="100" step="0.01" value="${escapeHtml(settings.sales_tax_rate || '0.07')}" placeholder="7 or 0.07"><small>Enter 7 or 0.07 for 7%.</small></label>
-    <label class="full">Default Quote Terms<textarea name="default_quote_terms">${escapeHtml(quoteTermsValue(null, settings.default_quote_terms))}</textarea></label>
-    <label class="full">Default Invoice Terms<textarea name="default_invoice_terms">${escapeHtml(invoiceTermsValue(null, settings.default_invoice_terms))}</textarea></label>
-    <div class="form-actions"><button class="primary" type="submit">Save Business Settings</button></div>
-  </form></div>
-  <div class="panel"><h2>Dropdown Management</h2><p>Adjust the categories and service types used across the app.</p><form id="dropdownForm" class="form-grid">
-    <label>Dropdown Type<select name="kind"><option value="ledger_category">Ledger Category</option><option value="service_type">Service Type</option></select></label>
-    <label>Label<input name="label" required placeholder="Example: Cable Runs"></label>
-    <label>Color/Tag<input name="color" placeholder="green, red, blue, optional"></label>
-    <label>Sort Order<input name="sort_order" type="number" value="100"></label>
-    <label class="check-row"><input name="is_active" type="checkbox" checked> Active</label>
-    <div class="form-actions"><button class="primary" type="submit">Add Dropdown Option</button></div>
-  </form></div>
-  ${table(['Type','Label','Color','Sort','Active','Actions'], rows.map(o => [statusLabel(o.kind), escapeHtml(o.label), escapeHtml(o.color), o.sort_order, o.is_active ? 'Yes' : 'No', `<div class="row-actions"><button class="mini" data-dd-action="toggle" data-id="${o.id}" data-active="${o.is_active}">${o.is_active ? 'Disable' : 'Enable'}</button><button class="mini danger-mini" data-dd-action="delete" data-id="${o.id}">Delete</button></div>`]))}
-  ${table(['Filename','Created','Size'], records.items.map(b => [escapeHtml(b.filename),b.created_at,`${Math.round(b.file_size_bytes/1024)} KB`]))}`;
-  backupBtn.onclick = async () => { window.location = '/api/admin/backups/download'; };
-  restoreForm.onsubmit = async e => {
-    e.preventDefault();
-    if(!confirm('This will replace current data. A pre-restore backup will be created. Continue?')) return;
-    const fd = new FormData(restoreForm);
-    const status = document.querySelector('#restoreStatus');
-    const btn = document.querySelector('#restoreBtn');
-    btn.disabled = true;
-    status.textContent = 'Restoring backup...';
+  const salesTaxPercent = settingsRatePercent(settings.sales_tax_rate, '7');
+  const incomeTaxPercent = settingsRatePercent(settings.income_tax_reserve_rate, '30');
+  root.innerHTML = `<div class="settings-workspace">
+    <form id="businessSettingsForm" class="settings-form">
+      <section class="settings-section settings-business-section" aria-labelledby="businessSettingsTitle">
+        <div class="settings-section-heading"><div><p class="settings-eyebrow">Business identity</p><h2 id="businessSettingsTitle">Business Information</h2></div><p>Used as the business name on printable Quotes, Invoices, and record packets.</p></div>
+        <div class="settings-field-grid">
+          <label class="settings-field settings-field-wide"><span>Business Name</span><input name="company_name" required maxlength="160" value="${escapeHtml(settings.company_name || 'Forged Systems LLC')}"><small>Changing this updates new and reprinted business documents.</small></label>
+        </div>
+      </section>
+
+      <section class="settings-section" aria-labelledby="financialSettingsTitle">
+        <div class="settings-section-heading"><div><p class="settings-eyebrow">Rates and reserves</p><h2 id="financialSettingsTitle">Financial Settings</h2></div><p>These defaults feed existing Quote, Invoice, Labor, and Report calculations.</p></div>
+        <div class="settings-field-grid settings-financial-grid">
+          <label class="settings-field"><span>Default Labor Rate</span><span class="settings-input-affix"><b>$</b><input name="default_labor_rate" type="number" step="0.01" min="0" required value="${escapeHtml(settings.default_labor_rate || '100.00')}" inputmode="decimal"></span><small>Hourly rate suggested for new Labor entries.</small></label>
+          <label class="settings-field"><span>Quote Markup</span><span class="settings-input-affix settings-input-suffix"><input name="quote_markup_percent" type="number" step="0.01" min="0" required value="${escapeHtml(settings.quote_markup_percent || '10')}" inputmode="decimal"><b>%</b></span><small>Existing Quote markup behavior is unchanged.</small></label>
+          <label class="settings-field settings-rate-field"><span>Sales Tax Rate</span><span class="settings-input-affix settings-input-suffix"><input id="salesTaxRateSetting" name="sales_tax_rate" type="number" min="0" max="100" step="0.01" required value="${escapeHtml(salesTaxPercent)}" inputmode="decimal"><b>%</b></span><small>Enter 7 or 0.07 for 7%. Saved safely as the existing normalized rate.</small><output id="salesTaxMeaning" class="settings-rate-meaning">Interpreted as ${escapeHtml(settingsRateMeaning(salesTaxPercent))}</output></label>
+          <label class="settings-field settings-rate-field"><span>Income Tax Reserve Rate</span><span class="settings-input-affix settings-input-suffix"><input id="incomeTaxRateSetting" name="income_tax_reserve_rate" type="number" min="0" max="100" step="0.01" required value="${escapeHtml(incomeTaxPercent)}" inputmode="decimal"><b>%</b></span><small>Enter 30 or 0.30 for 30%. Reports use this configured reserve rate.</small><output id="incomeTaxMeaning" class="settings-rate-meaning">Interpreted as ${escapeHtml(settingsRateMeaning(incomeTaxPercent))}</output></label>
+        </div>
+      </section>
+
+      <section class="settings-section" aria-labelledby="documentDefaultsTitle">
+        <div class="settings-section-heading"><div><p class="settings-eyebrow">Starting text</p><h2 id="documentDefaultsTitle">Document Defaults</h2></div><p>Applied when creating new documents. Existing Quote and Invoice text remains unchanged.</p></div>
+        <div class="settings-document-grid">
+          <label class="settings-field"><span>Default Quote Terms</span><textarea name="default_quote_terms" rows="9">${escapeHtml(quoteTermsValue(null, settings.default_quote_terms))}</textarea><small>Payment and validity text suggested for new Quotes.</small></label>
+          <label class="settings-field"><span>Default Invoice Terms</span><textarea name="default_invoice_terms" rows="9">${escapeHtml(invoiceTermsValue(null, settings.default_invoice_terms))}</textarea><small>Payment text suggested for new Invoices.</small></label>
+        </div>
+      </section>
+
+      <div class="settings-save-bar">
+        <div><strong id="settingsSaveState">All settings are up to date.</strong><span id="settingsSaveStatus" role="status">Changes are saved only when you choose Save Settings.</span></div>
+        <button id="saveBusinessSettings" class="primary" type="submit" disabled>Save Settings</button>
+      </div>
+    </form>
+
+    <section class="settings-section settings-backup-section" aria-labelledby="backupSettingsTitle">
+      <div class="settings-section-heading"><div><p class="settings-eyebrow">Data protection</p><h2 id="backupSettingsTitle">Backup & Restore</h2></div><p>Backups include the SQLite database, uploaded files, and exports in the existing ForgeOps ZIP format.</p></div>
+      <div class="settings-backup-grid">
+        <article class="settings-backup-card settings-create-backup">
+          <div><span class="settings-step">Safe action</span><h3>Create Backup</h3><p>Build and download a complete point-in-time copy of this ForgeOps workspace.</p></div>
+          <button id="backupBtn" class="primary" type="button">Create Backup</button>
+          <p id="backupStatus" class="settings-action-status" role="status">No automatic schedule or external destination is configured in this app.</p>
+        </article>
+        <article class="settings-backup-card settings-restore-backup">
+          <div><span class="settings-step settings-step-danger">High-impact action</span><h3>Restore Backup</h3><p>Restore replaces the current database, uploads, and exports. ForgeOps creates a pre-restore backup first.</p></div>
+          <form id="restoreForm" enctype="multipart/form-data">
+            <label class="settings-file-field"><span>Select ForgeOps Backup ZIP</span><input id="restoreFile" name="file" type="file" accept=".zip,application/zip" required></label>
+            <div id="restoreFileInfo" class="settings-file-info"><strong>No file selected</strong><span>Choose a ZIP, then check it before Restore is enabled.</span></div>
+            <div class="settings-restore-actions"><button id="validateRestoreBtn" class="ghost" type="button" disabled>Check Backup</button><button id="restoreBtn" class="danger" type="submit" disabled>Restore Checked Backup</button></div>
+            <p id="restoreStatus" class="settings-action-status" role="status">A file selection alone never starts a restore.</p>
+          </form>
+        </article>
+      </div>
+      <div class="settings-backup-history"><div class="settings-subheading"><h3>Backup History</h3><p>Backups created from this application instance.</p></div><div id="backupHistory">${backupHistoryHtml(records.items || [])}</div></div>
+    </section>
+
+    <section class="settings-section settings-list-section" aria-labelledby="listSettingsTitle">
+      <div class="settings-section-heading"><div><p class="settings-eyebrow">Application choices</p><h2 id="listSettingsTitle">Dropdown Management</h2></div><p>Adjust the categories and service types offered by new records. Existing record text is preserved.</p></div>
+      <form id="dropdownForm" class="settings-list-form">
+        <label class="settings-field"><span>Dropdown Type</span><select name="kind"><option value="ledger_category">Ledger Category</option><option value="service_type">Service Type</option></select></label>
+        <label class="settings-field"><span>Label</span><input name="label" required maxlength="120" placeholder="Example: Cable Runs"></label>
+        <label class="settings-field"><span>Color / Tag</span><input name="color" maxlength="40" placeholder="Optional"></label>
+        <label class="settings-field"><span>Sort Order</span><input name="sort_order" type="number" value="100" inputmode="numeric"></label>
+        <label class="settings-active-field"><input name="is_active" type="checkbox" checked><span>Active</span></label>
+        <button id="addDropdownOption" class="primary" type="submit">Add Option</button>
+        <p id="dropdownStatus" class="settings-action-status" role="status"></p>
+      </form>
+      <div class="settings-list-table">${compactTable(['Type','Label','Color','Sort','Active','Actions'], rows.map(option => [statusLabel(option.kind), escapeHtml(option.label), escapeHtml(option.color || '—'), option.sort_order, option.is_active ? 'Yes' : 'No', `<div class="row-actions"><button class="mini" type="button" data-dd-action="toggle" data-id="${option.id}" data-active="${option.is_active}">${option.is_active ? 'Disable' : 'Enable'}</button><button class="mini danger-mini" type="button" data-dd-action="delete" data-id="${option.id}">Delete</button></div>`]), 'No dropdown options.', 'settings-dropdown-table')}</div>
+    </section>
+  </div>`;
+
+  const settingsForm = document.querySelector('#businessSettingsForm');
+  const settingsButton = document.querySelector('#saveBusinessSettings');
+  const settingsSaveState = document.querySelector('#settingsSaveState');
+  const settingsSaveStatus = document.querySelector('#settingsSaveStatus');
+  const salesTaxInput = document.querySelector('#salesTaxRateSetting');
+  const incomeTaxInput = document.querySelector('#incomeTaxRateSetting');
+  const updateRateMeanings = () => {
+    document.querySelector('#salesTaxMeaning').textContent = `Interpreted as ${settingsRateMeaning(salesTaxInput.value)}`;
+    document.querySelector('#incomeTaxMeaning').textContent = `Interpreted as ${settingsRateMeaning(incomeTaxInput.value)}`;
+  };
+  settingsForm.addEventListener('input', () => {
+    settingsButton.disabled = false;
+    settingsSaveState.textContent = 'Unsaved changes';
+    settingsSaveStatus.className = '';
+    settingsSaveStatus.textContent = 'Review the values, then choose Save Settings.';
+    updateRateMeanings();
+  });
+  settingsForm.onsubmit = async event => {
+    event.preventDefault();
+    if (!settingsForm.reportValidity()) return;
+    const payload = clean(formData(settingsForm));
+    settingsButton.disabled = true;
+    settingsButton.textContent = 'Saving...';
+    settingsSaveStatus.className = '';
+    settingsSaveStatus.textContent = 'Saving settings...';
     try {
-      const result = await api('/api/admin/backups/restore', {method:'POST', body:fd});
-      const counts = result.restored_counts || {};
-      status.textContent = `Restore completed. Clients: ${counts.clients ?? 0}, Projects: ${counts.projects ?? 0}, Quotes: ${counts.quotes ?? 0}, Invoices: ${counts.invoices ?? 0}, Labor: ${counts.labor_entries ?? 0}, Ledger: ${counts.ledger_entries ?? 0}. Reloading...`;
-      show('Restore completed');
-      setTimeout(() => window.location.href = `/?restored=${Date.now()}`, 900);
-    } catch(err) {
-      status.textContent = err.message;
-      alert(err.message);
-      btn.disabled = false;
+      payload.income_tax_reserve_rate = settingsRatePayload(payload.income_tax_reserve_rate);
+      await api('/api/admin/settings', {method:'PUT', body:JSON.stringify(payload)});
+      settingsSaveState.textContent = 'Settings saved';
+      settingsSaveStatus.className = 'settings-status-success';
+      settingsSaveStatus.textContent = 'Saved values are active for new work and reporting.';
+      show('Settings saved');
+    } catch (err) {
+      settingsButton.disabled = false;
+      settingsSaveState.textContent = 'Settings not saved';
+      settingsSaveStatus.className = 'settings-status-error';
+      settingsSaveStatus.textContent = err.message;
+    } finally {
+      settingsButton.textContent = 'Save Settings';
     }
   };
-  businessSettingsForm.onsubmit = async e => { e.preventDefault(); const payload = clean(formData(businessSettingsForm)); try { await api('/api/admin/settings', {method:'PUT', body: JSON.stringify(payload)}); show('Business settings saved'); await loadPage('admin'); } catch(err) { alert(err.message); } };
-  dropdownForm.onsubmit = async e => { e.preventDefault(); const payload = clean(formData(dropdownForm)); payload.sort_order = Number(payload.sort_order || 100); payload.is_active = formBool(dropdownForm, 'is_active'); try { await api('/api/admin/dropdowns', {method:'POST', body: JSON.stringify(payload)}); show('Dropdown option added'); await loadPage('admin'); } catch(err) { alert(err.message); } };
-  root.querySelectorAll('[data-dd-action="toggle"]').forEach(btn => btn.addEventListener('click', async () => { try { await api(`/api/admin/dropdowns/${btn.dataset.id}`, {method:'PATCH', body: JSON.stringify({is_active: btn.dataset.active !== 'true'})}); await loadPage('admin'); } catch(err) { alert(err.message); } }));
-  root.querySelectorAll('[data-dd-action="delete"]').forEach(btn => btn.addEventListener('click', async () => { if(!confirm('Delete this dropdown option? Existing records keep their current text, but new forms will no longer show it.')) return; try { await api(`/api/admin/dropdowns/${btn.dataset.id}`, {method:'DELETE'}); await loadPage('admin'); } catch(err) { alert(err.message); } }));
+
+  const backupButton = document.querySelector('#backupBtn');
+  backupButton.onclick = () => downloadSettingsBackup(backupButton, document.querySelector('#backupStatus'));
+
+  const restoreForm = document.querySelector('#restoreForm');
+  const restoreFile = document.querySelector('#restoreFile');
+  const restoreFileInfo = document.querySelector('#restoreFileInfo');
+  const validateRestoreButton = document.querySelector('#validateRestoreBtn');
+  const restoreButton = document.querySelector('#restoreBtn');
+  const restoreStatus = document.querySelector('#restoreStatus');
+  let checkedFileKey = '';
+  restoreFile.addEventListener('change', () => {
+    const file = restoreFile.files?.[0];
+    checkedFileKey = '';
+    restoreButton.disabled = true;
+    validateRestoreButton.disabled = !file;
+    restoreStatus.className = 'settings-action-status';
+    restoreStatus.textContent = file ? 'Check this backup before restoring.' : 'A file selection alone never starts a restore.';
+    restoreFileInfo.innerHTML = file
+      ? `<strong>${escapeHtml(file.name)}</strong><span>${Math.max(1, Math.round(file.size / 1024))} KB selected — not yet checked.</span>`
+      : '<strong>No file selected</strong><span>Choose a ZIP, then check it before Restore is enabled.</span>';
+  });
+  validateRestoreButton.onclick = async () => {
+    const file = restoreFile.files?.[0];
+    if (!file) return;
+    validateRestoreButton.disabled = true;
+    restoreStatus.className = 'settings-action-status';
+    restoreStatus.textContent = 'Checking backup contents...';
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const result = await api('/api/admin/backups/validate', {method:'POST', body:fd});
+      const counts = result.record_counts || {};
+      checkedFileKey = `${file.name}:${file.size}:${file.lastModified}`;
+      restoreButton.disabled = false;
+      restoreFileInfo.innerHTML = `<strong>${escapeHtml(file.name)}</strong><span>Valid ForgeOps backup — ${counts.clients ?? 0} Clients, ${counts.projects ?? 0} Projects, ${counts.quotes ?? 0} Quotes, ${counts.invoices ?? 0} Invoices.</span>`;
+      restoreStatus.className = 'settings-action-status settings-status-success';
+      restoreStatus.textContent = 'Backup check passed. Restore is now available.';
+    } catch (err) {
+      checkedFileKey = '';
+      restoreButton.disabled = true;
+      restoreStatus.className = 'settings-action-status settings-status-error';
+      restoreStatus.textContent = err.message;
+    } finally {
+      validateRestoreButton.disabled = false;
+    }
+  };
+  restoreForm.onsubmit = async event => {
+    event.preventDefault();
+    const file = restoreFile.files?.[0];
+    const fileKey = file ? `${file.name}:${file.size}:${file.lastModified}` : '';
+    if (!file || fileKey !== checkedFileKey) {
+      restoreStatus.className = 'settings-action-status settings-status-error';
+      restoreStatus.textContent = 'Check the selected backup again before restoring.';
+      restoreButton.disabled = true;
+      return;
+    }
+    if (!confirm(`Restore ${file.name}? This replaces current application data. A pre-restore backup will be created first.`)) return;
+    const restorePayload = new FormData(restoreForm);
+    restoreButton.disabled = true;
+    validateRestoreButton.disabled = true;
+    restoreFile.disabled = true;
+    restoreStatus.className = 'settings-action-status';
+    restoreStatus.textContent = 'Restoring checked backup... Keep this page open.';
+    try {
+      const result = await api('/api/admin/backups/restore', {method:'POST', body:restorePayload});
+      const counts = result.restored_counts || {};
+      restoreStatus.className = 'settings-action-status settings-status-success';
+      restoreStatus.textContent = `Restore completed. Clients: ${counts.clients ?? 0}, Projects: ${counts.projects ?? 0}, Quotes: ${counts.quotes ?? 0}, Invoices: ${counts.invoices ?? 0}, Labor: ${counts.labor_entries ?? 0}, Ledger: ${counts.ledger_entries ?? 0}. Reloading...`;
+      show('Restore completed');
+      setTimeout(() => window.location.href = `/?restored=${Date.now()}`, 900);
+    } catch (err) {
+      restoreStatus.className = 'settings-action-status settings-status-error';
+      restoreStatus.textContent = err.message;
+      restoreButton.disabled = false;
+      validateRestoreButton.disabled = false;
+      restoreFile.disabled = false;
+    }
+  };
+
+  const dropdownForm = document.querySelector('#dropdownForm');
+  dropdownForm.onsubmit = async event => {
+    event.preventDefault();
+    const status = document.querySelector('#dropdownStatus');
+    const button = document.querySelector('#addDropdownOption');
+    const payload = clean(formData(dropdownForm));
+    payload.sort_order = Number(payload.sort_order || 100);
+    payload.is_active = formBool(dropdownForm, 'is_active');
+    button.disabled = true;
+    status.className = 'settings-action-status';
+    status.textContent = 'Adding option...';
+    try {
+      await api('/api/admin/dropdowns', {method:'POST', body:JSON.stringify(payload)});
+      show('Dropdown option added');
+      await loadPage('admin');
+    } catch (err) {
+      button.disabled = false;
+      status.className = 'settings-action-status settings-status-error';
+      status.textContent = err.message;
+    }
+  };
+  root.querySelectorAll('[data-dd-action="toggle"]').forEach(button => button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      await api(`/api/admin/dropdowns/${button.dataset.id}`, {method:'PATCH', body:JSON.stringify({is_active:button.dataset.active !== 'true'})});
+      await loadPage('admin');
+    } catch (err) {
+      button.disabled = false;
+      document.querySelector('#dropdownStatus').className = 'settings-action-status settings-status-error';
+      document.querySelector('#dropdownStatus').textContent = err.message;
+    }
+  }));
+  root.querySelectorAll('[data-dd-action="delete"]').forEach(button => button.addEventListener('click', async () => {
+    if (!confirm('Delete this dropdown option? Existing records keep their current text, but new forms will no longer show it.')) return;
+    button.disabled = true;
+    try {
+      await api(`/api/admin/dropdowns/${button.dataset.id}`, {method:'DELETE'});
+      await loadPage('admin');
+    } catch (err) {
+      button.disabled = false;
+      document.querySelector('#dropdownStatus').className = 'settings-action-status settings-status-error';
+      document.querySelector('#dropdownStatus').textContent = err.message;
+    }
+  }));
 }
 
 document.querySelector('#loginForm').addEventListener('submit', login);

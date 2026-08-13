@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
-    assert "forgeops-phase-7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
+    assert "forgeops-phase-8-settings" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
-    assert "forgeops-phase-7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
+    assert "forgeops-phase-8-settings" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
 
     for marker in [
@@ -284,10 +284,10 @@ def test_frontend_phase_5_labor_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in html
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
-    assert "forgeops-phase-7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
+    assert "forgeops-phase-8-settings" in service_worker
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
 
     for marker in [
         "Search Labor",
@@ -346,10 +346,10 @@ def test_frontend_phase_6_ledger_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in html
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
-    assert "forgeops-phase-7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
+    assert "forgeops-phase-8-settings" in service_worker
     assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
 
     for marker in [
         "Search Ledger",
@@ -415,10 +415,10 @@ def test_frontend_phase_7_reports_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in html
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in html
-    assert "forgeops-phase-7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
+    assert "forgeops-phase-8-settings" in service_worker
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in service_worker
-    assert "/static/js/app.js?v=0.8.12-phase7-reports" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
 
     for marker in [
         "function reportMetricHtml",
@@ -461,6 +461,79 @@ def test_frontend_phase_7_reports_workflow_characterization():
         "@media (max-width: 360px)",
     ]:
         assert marker in phase7_css
+
+
+def test_frontend_phase_8_settings_backup_workflow_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    phase8_css = (static_dir / "phase8-settings.css").read_text(encoding="utf-8")
+    service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
+
+    assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in html
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in html
+    assert "forgeops-phase-8-settings" in service_worker
+    assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase8-settings" in service_worker
+
+    admin_workflow = javascript[
+        javascript.index("function settingsRatePercent") : javascript.index(
+            "document.querySelector('#loginForm')"
+        )
+    ]
+    for marker in [
+        "Business Information",
+        "Financial Settings",
+        "Document Defaults",
+        "Income Tax Reserve Rate",
+        "Enter 7 or 0.07 for 7%",
+        "Enter 30 or 0.30 for 30%",
+        "Unsaved changes",
+        "Settings not saved",
+        "Backup & Restore",
+        "Create Backup",
+        "Check Backup",
+        "Restore Checked Backup",
+        "A file selection alone never starts a restore",
+        "/api/admin/backups/validate",
+        "/api/admin/backups/restore",
+        "A pre-restore backup will be created first",
+        "Backup History",
+        "Dropdown Management",
+    ]:
+        assert marker in admin_workflow
+
+    assert admin_workflow.index("/api/admin/backups/validate") < admin_workflow.index(
+        "/api/admin/backups/restore"
+    )
+    assert admin_workflow.index("const restorePayload = new FormData(restoreForm)") < admin_workflow.index(
+        "restoreFile.disabled = true"
+    )
+    assert "body:restorePayload" in admin_workflow
+    assert "settingsRatePayload(payload.income_tax_reserve_rate)" in admin_workflow
+    assert "payload.sales_tax_rate =" not in admin_workflow
+    assert "rclone" not in admin_workflow.lower()
+    assert "cloud destination" not in admin_workflow.lower()
+    assert "factory reset" not in admin_workflow.lower()
+
+    for marker in [
+        ".settings-workspace",
+        ".settings-financial-grid",
+        ".settings-document-grid",
+        ".settings-save-bar",
+        ".settings-backup-grid",
+        ".settings-restore-backup",
+        ".settings-file-field input::file-selector-button",
+        ".settings-backup-history-list",
+        ".settings-dropdown-table td::before",
+        "env(safe-area-inset-bottom",
+        "overflow-wrap: anywhere",
+        "var(--surface-raised)",
+        "var(--text-muted)",
+        "@media (max-width: 700px)",
+        "@media (max-width: 360px)",
+    ]:
+        assert marker in phase8_css
 
 
 def test_health(client):
@@ -639,7 +712,15 @@ def test_settings_and_backup_validate_restore(authed):
 def test_full_backup_restore_preserves_business_graph_settings_and_startup(authed):
     assert authed.put(
         "/api/admin/settings",
-        json={"company_name": "Backup Graph LLC", "sales_tax_rate": "7"},
+        json={
+            "company_name": "Backup Graph LLC",
+            "default_labor_rate": "125.00",
+            "quote_markup_percent": "12.5",
+            "sales_tax_rate": "7",
+            "income_tax_reserve_rate": "0.25",
+            "default_quote_terms": "Quote default survives restore.",
+            "default_invoice_terms": "Invoice default survives restore.",
+        },
     ).status_code == 200
     client_id = authed.post("/api/clients", json={"name": "Backup Graph Client"}).json()["id"]
     project_id = authed.post(
@@ -762,7 +843,12 @@ def test_full_backup_restore_preserves_business_graph_settings_and_startup(authe
 
     settings = authed.get("/api/admin/settings").json()["settings"]
     assert settings["company_name"] == "Backup Graph LLC"
+    assert settings["default_labor_rate"] == "125.00"
+    assert settings["quote_markup_percent"] == "12.5"
     assert settings["sales_tax_rate"] == "0.07"
+    assert settings["income_tax_reserve_rate"] == "0.25"
+    assert settings["default_quote_terms"] == "Quote default survives restore."
+    assert settings["default_invoice_terms"] == "Invoice default survives restore."
     restored_client = authed.get(f"/api/clients/{client_id}").json()
     restored_project = authed.get("/api/projects", params={"client_id": client_id}).json()["items"][0]
     restored_quote = authed.get("/api/quotes", params={"project_id": project_id}).json()["items"][0]
@@ -789,7 +875,9 @@ def test_full_backup_restore_preserves_business_graph_settings_and_startup(authe
 
     init_db()
     assert authed.get(f"/api/clients/{client_id}").json()["name"] == "Backup Graph Client"
-    assert authed.get("/api/admin/settings").json()["settings"]["company_name"] == "Backup Graph LLC"
+    persisted_settings = authed.get("/api/admin/settings").json()["settings"]
+    assert persisted_settings["company_name"] == "Backup Graph LLC"
+    assert persisted_settings["income_tax_reserve_rate"] == "0.25"
 
 
 def test_sales_tax_setting_normalizes_percent_and_decimal_inputs(authed):
