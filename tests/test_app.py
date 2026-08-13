@@ -64,14 +64,14 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
-    assert "forgeops-v2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
+    assert "forgeops-v2-sales-tax-periods" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
     assert "Estimated Take-Home" in javascript
     assert "Sales Tax Safety Hold" in javascript
-    assert "/api/reports/money-flow?start_date=" in javascript
+    assert "/api/reports/money-flow?${params}" in javascript
     assert "openScopedActionSheet" in javascript
     assert "data-client-tab" in javascript
     assert "data-project-tab" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
-    assert "forgeops-v2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
+    assert "forgeops-v2-sales-tax-periods" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
 
     for marker in [
@@ -284,10 +284,10 @@ def test_frontend_phase_5_labor_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in html
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
-    assert "forgeops-v2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
+    assert "forgeops-v2-sales-tax-periods" in service_worker
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in service_worker
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in service_worker
 
     for marker in [
         "Search Labor",
@@ -345,11 +345,11 @@ def test_frontend_phase_6_ledger_workflow_characterization():
     phase6_css = (static_dir / "phase6-ledger.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger-final" in html
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
-    assert "forgeops-v2-final" in service_worker
-    assert "/static/phase6-ledger.css?v=0.8.12-phase6-ledger-final" in service_worker
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
+    assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-periods" in html
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
+    assert "forgeops-v2-sales-tax-periods" in service_worker
+    assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-periods" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in service_worker
 
     for marker in [
         "Search Ledger",
@@ -415,10 +415,10 @@ def test_frontend_phase_7_reports_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in html
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
-    assert "forgeops-v2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
+    assert "forgeops-v2-sales-tax-periods" in service_worker
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in service_worker
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in service_worker
 
     for marker in [
         "function reportMetricHtml",
@@ -441,7 +441,7 @@ def test_frontend_phase_7_reports_workflow_characterization():
         "Invoices & Records",
         "No financial activity in this period",
         "report-detail-disclosure",
-        "/api/reports/money-flow?start_date=",
+        "/api/reports/money-flow?${params}",
     ]:
         assert marker in javascript
 
@@ -472,10 +472,10 @@ def test_frontend_phase_8_settings_backup_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in html
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in html
-    assert "forgeops-v2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
+    assert "forgeops-v2-sales-tax-periods" in service_worker
     assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in service_worker
-    assert "/static/js/app.js?v=0.8.12-forgeopsv2-final" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in service_worker
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in html
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in service_worker
 
@@ -1357,6 +1357,7 @@ def test_money_flow_report_characterizes_tax_and_expense_treatment(authed):
             "business_type": "admin",
             "category": "Sales Tax Paid",
             "amount": "20.00",
+            "sales_tax_period": "2026-Q2",
         },
         {
             "entry_date": "2026-05-26",

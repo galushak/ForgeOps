@@ -4,11 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session, func, select
 
 from app.api.deps import SessionDep, get_current_user
+from app.core.ny_sales_tax import ny_sales_tax_period
 from app.core.security import utc_now
 from app.models import Client, Invoice, LedgerBusinessType, LedgerEntry, LedgerKind, Project, Quote, Receipt
 from app.schemas import LedgerCreate, LedgerRead, LedgerUpdate
 
 TAX_PAYMENT_CATEGORIES = {"Sales Tax Paid", "Sales Tax", "Income Tax Paid", "Income Tax"}
+SALES_TAX_PERIOD_CATEGORY = "Sales Tax Paid"
 
 LEDGER_CATEGORIES_BY_KIND = {
     LedgerKind.income: {
@@ -46,6 +48,20 @@ def _validate_category(kind: LedgerKind, category: str) -> None:
     allowed = LEDGER_CATEGORIES_BY_KIND.get(kind, set())
     if category not in allowed:
         raise HTTPException(status_code=400, detail="Category does not match the selected account type")
+
+
+def _validated_sales_tax_period(value: str | None, *, required: bool) -> str | None:
+    if value is None:
+        if required:
+            raise HTTPException(
+                status_code=400,
+                detail="Applies To NY Sales Tax Quarter is required for Sales Tax Paid entries",
+            )
+        return None
+    try:
+        return ny_sales_tax_period(value).key
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _validate_links(
@@ -122,6 +138,10 @@ def list_ledger(
 def create_ledger_entry(payload: LedgerCreate, session: SessionDep) -> LedgerEntry:
     _validate_category(payload.kind, payload.category)
     data = payload.model_dump()
+    if payload.category == SALES_TAX_PERIOD_CATEGORY:
+        data["sales_tax_period"] = _validated_sales_tax_period(payload.sales_tax_period, required=True)
+    else:
+        data["sales_tax_period"] = None
     if payload.business_type == LedgerBusinessType.admin:
         data["client_id"] = None
         data["project_id"] = None
@@ -155,6 +175,15 @@ def update_ledger_entry(entry_id: int, payload: LedgerUpdate, session: SessionDe
     next_category = data.get("category", entry.category)
     next_business_type = data.get("business_type", entry.business_type)
     _validate_category(next_kind, next_category)
+    if next_category == SALES_TAX_PERIOD_CATEGORY:
+        effective_period = data.get("sales_tax_period", entry.sales_tax_period)
+        period_is_part_of_edit = "category" in data or "sales_tax_period" in data
+        validated_period = _validated_sales_tax_period(effective_period, required=period_is_part_of_edit)
+        if "sales_tax_period" in data or validated_period is not None:
+            data["sales_tax_period"] = validated_period
+    else:
+        # Tax-period metadata has no meaning after the category stops being Sales Tax Paid.
+        data["sales_tax_period"] = None
     if next_business_type == LedgerBusinessType.admin:
         data["client_id"] = None
         data["project_id"] = None

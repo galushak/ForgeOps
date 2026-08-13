@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 
 from app.api.deps import SessionDep, get_current_user
+from app.core.ny_sales_tax import ny_sales_tax_period, ny_sales_tax_periods
 from app.core.rates import normalize_percentage_rate
 from app.models import (
     AppSetting,
@@ -42,6 +43,10 @@ def _is_tax_payment(entry: LedgerEntry) -> bool:
     return entry.kind == LedgerKind.expense and (entry.category or "") in TAX_PAYMENT_CATEGORIES
 
 
+def _is_sales_tax_payment(entry: LedgerEntry) -> bool:
+    return entry.kind == LedgerKind.expense and (entry.category or "") in SALES_TAX_PAYMENT_CATEGORIES
+
+
 def _configured_rate(session: SessionDep, key: str, default: Decimal) -> Decimal:
     setting = session.get(AppSetting, key)
     try:
@@ -50,14 +55,45 @@ def _configured_rate(session: SessionDep, key: str, default: Decimal) -> Decimal
         return default
 
 
+@router.get("/ny-sales-tax-periods", response_model=dict)
+def list_ny_sales_tax_periods(session: SessionDep) -> dict:
+    entries = session.exec(select(LedgerEntry)).all()
+    years = [date.today().year]
+    years.extend(entry.entry_date.year for entry in entries)
+    for entry in entries:
+        if not entry.sales_tax_period:
+            continue
+        try:
+            years.append(ny_sales_tax_period(entry.sales_tax_period).year)
+        except ValueError:
+            continue
+    periods = ny_sales_tax_periods(min(years) - 1, max(years) + 1)
+    return {"items": [period.model_dump() for period in periods]}
+
+
 @router.get("/money-flow", response_model=dict)
 def money_flow_report(
     session: SessionDep,
     start_date: date = Query(...),
     end_date: date = Query(...),
+    sales_tax_period: str | None = Query(None),
 ) -> dict:
     if end_date < start_date:
         raise HTTPException(status_code=400, detail="End date must be on or after start date")
+    selected_sales_tax_period = None
+    if sales_tax_period is not None:
+        try:
+            selected_sales_tax_period = ny_sales_tax_period(sales_tax_period)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if (
+            start_date != selected_sales_tax_period.start_date
+            or end_date != selected_sales_tax_period.end_date
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Selected dates do not match the NY sales-tax period",
+            )
 
     clients = session.exec(select(Client)).all()
     projects = session.exec(select(Project)).all()
@@ -65,9 +101,25 @@ def money_flow_report(
     project_names = _name_map(projects)
     project_clients = {int(p.id): int(p.client_id) for p in projects if p.id is not None}
 
-    ledger_entries = [
-        e for e in session.exec(select(LedgerEntry)).all() if _date_filter(e.entry_date, start_date, end_date)
-    ]
+    all_ledger_entries = session.exec(select(LedgerEntry)).all()
+    ledger_entries = [e for e in all_ledger_entries if _date_filter(e.entry_date, start_date, end_date)]
+    if selected_sales_tax_period is None:
+        sales_tax_payment_entries = [e for e in ledger_entries if _is_sales_tax_payment(e)]
+    else:
+        # Assigned payments follow their NY sales-tax period. Null values are legacy
+        # records and keep the former transaction-date attribution until assigned.
+        sales_tax_payment_entries = [
+            e
+            for e in all_ledger_entries
+            if _is_sales_tax_payment(e)
+            and (
+                e.sales_tax_period == selected_sales_tax_period.key
+                or (
+                    e.sales_tax_period is None
+                    and _date_filter(e.entry_date, start_date, end_date)
+                )
+            )
+        ]
     quotes = [q for q in session.exec(select(Quote)).all() if _date_filter(q.quote_date, start_date, end_date)]
     invoices = [i for i in session.exec(select(Invoice)).all() if _date_filter(i.invoice_date, start_date, end_date)]
     labor_entries = [
@@ -96,7 +148,7 @@ def money_flow_report(
     )
     expenses = job_expenses + business_expenses
     net_income = (revenue - expenses).quantize(Decimal("0.01"))
-    sales_tax_paid = sum((abs(e.amount) for e in ledger_entries if e.kind == LedgerKind.expense and (e.category or "") in SALES_TAX_PAYMENT_CATEGORIES), Decimal("0.00"))
+    sales_tax_paid = sum((abs(e.amount) for e in sales_tax_payment_entries), Decimal("0.00"))
     income_tax_paid = sum((abs(e.amount) for e in ledger_entries if e.kind == LedgerKind.expense and (e.category or "") in INCOME_TAX_PAYMENT_CATEGORIES), Decimal("0.00"))
     total_tax_paid = sales_tax_paid + income_tax_paid
     gross_sales_tax_estimate = (revenue * Decimal("0.07")).quantize(Decimal("0.01"))
@@ -131,7 +183,12 @@ def money_flow_report(
             return "Cost of Goods Sold"
         return "Expenses"
 
-    for entry in ledger_entries:
+    breakdown_ledger_entries = ledger_entries
+    if selected_sales_tax_period is not None:
+        breakdown_ledger_entries = [e for e in ledger_entries if not _is_sales_tax_payment(e)]
+        breakdown_ledger_entries.extend(sales_tax_payment_entries)
+
+    for entry in breakdown_ledger_entries:
         amount = abs(entry.amount)
         category_name = entry.category or "Uncategorized"
         if _is_tax_payment(entry):
@@ -247,6 +304,10 @@ def money_flow_report(
 
     return {
         "range": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+        "sales_tax_attribution": {
+            "mode": "assigned-period-with-legacy-date-fallback" if selected_sales_tax_period else "transaction-date",
+            "period": selected_sales_tax_period.model_dump() if selected_sales_tax_period else None,
+        },
         "cards": {
             "ledger_revenue": _money(revenue),
             "ledger_expenses": _money(expenses),

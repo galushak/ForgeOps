@@ -145,6 +145,7 @@ class LedgerEntry(SQLModel, table=True):
     receipt_id: int | None = Field(default=None, foreign_key="receipt.id", index=True)
     quote_id: int | None = Field(default=None, foreign_key="quote.id", index=True)
     invoice_id: int | None = Field(default=None, foreign_key="invoice.id", index=True)
+    sales_tax_period: str | None = Field(default=None, max_length=7)
     created_at: datetime
     updated_at: datetime
 

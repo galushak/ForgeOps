@@ -117,6 +117,7 @@ class LedgerBase(BaseModel):
     receipt_id: int | None = None
     quote_id: int | None = None
     invoice_id: int | None = None
+    sales_tax_period: str | None = Field(default=None, min_length=7, max_length=7, pattern=r"^\d{4}-Q[1-4]$")
 
 
 class LedgerCreate(LedgerBase):
@@ -135,6 +136,7 @@ class LedgerUpdate(BaseModel):
     receipt_id: int | None = None
     quote_id: int | None = None
     invoice_id: int | None = None
+    sales_tax_period: str | None = Field(default=None, min_length=7, max_length=7, pattern=r"^\d{4}-Q[1-4]$")
 
 
 class LedgerRead(LedgerBase):

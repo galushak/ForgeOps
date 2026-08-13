@@ -1,4 +1,4 @@
-const CACHE_NAME = 'forgeops-v2-final';
+const CACHE_NAME = 'forgeops-v2-sales-tax-periods';
 const APP_SHELL = [
   '/',
   '/static/styles.css?v=0.8.12-phase2',
@@ -7,11 +7,11 @@ const APP_SHELL = [
   '/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2',
   '/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix',
   '/static/phase5-labor.css?v=0.8.12-phase5-labor-final',
-  '/static/phase6-ledger.css?v=0.8.12-phase6-ledger-final',
+  '/static/phase6-ledger.css?v=0.8.12-sales-tax-periods',
   '/static/phase7-reports.css?v=0.8.12-phase7-reports',
   '/static/phase8-settings.css?v=0.8.12-phase8-settings',
   '/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final',
-  '/static/js/app.js?v=0.8.12-forgeopsv2-final',
+  '/static/js/app.js?v=0.8.12-sales-tax-periods',
   '/static/manifest.webmanifest',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'

@@ -235,6 +235,25 @@ body.ledger-editor-open { overflow: hidden; }
 
 .ledger-editor-form .ledger-field textarea { min-height: 92px; resize: vertical; }
 .ledger-description-field { grid-column: 1 / -1; }
+.ledger-sales-tax-period-field { grid-column: 1 / -1; }
+.ledger-sales-tax-period-field small {
+  color: var(--text-muted);
+  font-size: .75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.ledger-category-cell .ledger-tax-period,
+.ledger-card-category .ledger-tax-period {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.ledger-category-cell .ledger-tax-period-unassigned,
+.ledger-card-category .ledger-tax-period-unassigned {
+  color: var(--warning);
+}
 
 .ledger-context-summary {
   min-width: 0;
@@ -353,6 +372,8 @@ body.ledger-editor-open { overflow: hidden; }
   .ledger-card-context span,
   .ledger-card-context small { color: var(--text-muted); font-size: .78rem; overflow-wrap: anywhere; }
   .ledger-card-category span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .ledger-card-category .ledger-tax-period { color: var(--primary); }
+  .ledger-card-category .ledger-tax-period-unassigned { color: var(--warning); }
   .ledger-card-amount { grid-column: 2; align-self: start; font-size: 1.05rem; font-weight: 900; white-space: nowrap; }
   .ledger-card-context { grid-column: 1 / -1; padding-top: .65rem; border-top: 1px solid var(--border); }
 
@@ -398,7 +419,8 @@ body.ledger-editor-open { overflow: hidden; }
   .ledger-editor-scroll { padding: .75rem .75rem 1rem; }
   .ledger-editor-section { padding: .8rem; border-radius: var(--radius); }
   .ledger-editor-grid { grid-template-columns: 1fr; gap: .65rem; }
-  .ledger-description-field { grid-column: auto; }
+  .ledger-description-field,
+  .ledger-sales-tax-period-field { grid-column: auto; }
   .ledger-editor-section-head { grid-template-columns: auto minmax(0, 1fr); }
   .ledger-kind-preview { grid-column: 2; justify-self: start; }
   .ledger-attached-receipt,

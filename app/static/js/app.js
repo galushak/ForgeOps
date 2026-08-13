@@ -1,4 +1,4 @@
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, salesTaxPeriods: [], editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -40,6 +40,7 @@ const LEDGER_CATEGORIES_BY_TYPE = {
   expense: ['General Business Expense', 'Tools and Equipment', 'Office Supplies', 'Sales Tax Paid', 'Income Tax Paid'],
 };
 const TAX_PAYMENT_CATEGORIES = new Set(['Sales Tax Paid', 'Sales Tax', 'Income Tax Paid', 'Income Tax']);
+const SALES_TAX_PERIOD_CATEGORY = 'Sales Tax Paid';
 function normalizeLedgerKind(value) { return value === 'revenue' ? 'income' : (value || 'income'); }
 function ledgerCategoryOptions(kind, selected='') {
   const normalized = normalizeLedgerKind(kind);
@@ -48,6 +49,14 @@ function ledgerCategoryOptions(kind, selected='') {
 function ledgerKindLabel(kind) {
   const labels = {income: 'Income', revenue: 'Income', cogs: 'Cost of Goods Sold', expense: 'Expenses'};
   return labels[kind] || statusLabel(kind);
+}
+function salesTaxPeriodByKey(key) { return state.salesTaxPeriods.find(period => period.key === key); }
+function salesTaxPeriodLabel(key) { return salesTaxPeriodByKey(key)?.label || key || ''; }
+function salesTaxPeriodOptions(selected='') {
+  const periods = [...state.salesTaxPeriods].sort((a, b) => Number(b.year) - Number(a.year) || Number(a.quarter) - Number(b.quarter));
+  const options = periods.map(period => `<option value="${escapeHtml(period.key)}" ${String(selected)===String(period.key)?'selected':''}>${escapeHtml(period.label)}</option>`).join('');
+  const selectedIsMissing = selected && !periods.some(period => period.key === selected);
+  return `${selectedIsMissing ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}</option>` : ''}${options}`;
 }
 function configureLedgerForm(form, opts={}) {
   const kind = form.elements.kind;
@@ -61,6 +70,8 @@ function configureLedgerForm(form, opts={}) {
   const invoiceWrap = opts.invoiceWrap || form.querySelector('[data-ledger-invoice-wrap]');
   const quoteSelect = form.elements.quote_id;
   const invoiceSelect = form.elements.invoice_id;
+  const salesTaxPeriodWrap = form.querySelector('[data-ledger-sales-tax-period-wrap]');
+  const salesTaxPeriodSelect = form.elements.sales_tax_period;
   const selectedCategory = opts.selectedCategory || category?.value || '';
   function refreshCategories(preserve=true) {
     if (!category || !kind) return;
@@ -83,7 +94,17 @@ function configureLedgerForm(form, opts={}) {
       if (invoiceSelect) invoiceSelect.value = '';
     }
   }
-  kind?.addEventListener('change', () => refreshCategories(false));
+  function refreshSalesTaxPeriodVisibility() {
+    const active = normalizeLedgerKind(kind?.value) === 'expense' && category?.value === SALES_TAX_PERIOD_CATEGORY;
+    salesTaxPeriodWrap?.classList.toggle('hidden', !active);
+    if (salesTaxPeriodSelect) {
+      salesTaxPeriodSelect.required = active;
+      salesTaxPeriodSelect.disabled = !active;
+      if (!active) salesTaxPeriodSelect.value = '';
+    }
+  }
+  kind?.addEventListener('change', () => { refreshCategories(false); refreshSalesTaxPeriodVisibility(); });
+  category?.addEventListener('change', refreshSalesTaxPeriodVisibility);
   function refreshLinkedSelectors() {
     const clientId = clientSelect?.value || opts.clientId || '';
     const projectId = projectSelect?.value || '';
@@ -99,6 +120,7 @@ function configureLedgerForm(form, opts={}) {
   refreshLinkedSelectors();
   refreshCategories(false);
   refreshClientVisibility();
+  refreshSalesTaxPeriodVisibility();
 }
 function normalizeLedgerPayload(payload) {
   payload.kind = normalizeLedgerKind(payload.kind);
@@ -115,6 +137,7 @@ function normalizeLedgerPayload(payload) {
     numOrDelete(payload, 'invoice_id');
   }
   numOrDelete(payload, 'receipt_id');
+  if (payload.category !== SALES_TAX_PERIOD_CATEGORY) delete payload.sales_tax_period;
   return payload;
 }
 
@@ -1076,13 +1099,14 @@ async function preloadLookups(force=false) {
   const now = Date.now();
   if (!force && state.lookupCachePromise && now - state.lookupCacheAt < 30000) return state.lookupCachePromise;
   state.lookupCachePromise = (async () => {
-    const [clients, projects, quotes, invoices, ledgerCategories, serviceTypes] = await Promise.allSettled([
+    const [clients, projects, quotes, invoices, ledgerCategories, serviceTypes, salesTaxPeriods] = await Promise.allSettled([
       api('/api/clients?page_size=100'),
       api('/api/projects?page_size=100'),
       api('/api/quotes?page_size=100'),
       api('/api/invoices?page_size=100'),
       api('/api/dropdowns?kind=ledger_category&page_size=100'),
       api('/api/dropdowns?kind=service_type&page_size=100'),
+      api('/api/reports/ny-sales-tax-periods'),
     ]);
     state.clients = clients.status === 'fulfilled' ? clients.value.items : [];
     state.projects = projects.status === 'fulfilled' ? projects.value.items : [];
@@ -1090,6 +1114,7 @@ async function preloadLookups(force=false) {
     state.invoices = invoices.status === 'fulfilled' ? invoices.value.items : [];
     state.dropdowns.ledger_category = ledgerCategories.status === 'fulfilled' ? ledgerCategories.value.items : [];
     state.dropdowns.service_type = serviceTypes.status === 'fulfilled' ? serviceTypes.value.items : [];
+    state.salesTaxPeriods = salesTaxPeriods.status === 'fulfilled' ? salesTaxPeriods.value.items : [];
     state.lookupCacheAt = Date.now();
   })();
   return state.lookupCachePromise;
@@ -2503,8 +2528,15 @@ function ledgerLinkedRecordHtml(entry) {
   return `<span class="ledger-linked-record-cell" title="${escapeHtml(fullReference)}">${linkedRow('Quote', quote)}${linkedRow('Invoice', invoice)}</span>`;
 }
 
+function ledgerSalesTaxPeriodHtml(entry) {
+  if (entry.category !== SALES_TAX_PERIOD_CATEGORY) return '';
+  if (!entry.sales_tax_period) return '<span class="ledger-tax-period ledger-tax-period-unassigned">Tax period unassigned</span>';
+  return `<span class="ledger-tax-period">Applies to ${escapeHtml(salesTaxPeriodLabel(entry.sales_tax_period))}</span>`;
+}
+
 function ledgerSearchValue(entry) {
-  return [entry.entry_date, ledgerKindLabel(entry.kind), entry.category, entry.description, entry.business_type, clientName(entry.client_id), projectName(entry.project_id), quoteName(entry.quote_id), invoiceName(entry.invoice_id), entry.receipt_id ? 'receipt attached' : 'no receipt'].filter(Boolean).join(' ').toLowerCase();
+  const taxPeriod = entry.category === SALES_TAX_PERIOD_CATEGORY ? (entry.sales_tax_period ? `applies to ${salesTaxPeriodLabel(entry.sales_tax_period)}` : 'tax period unassigned') : '';
+  return [entry.entry_date, ledgerKindLabel(entry.kind), entry.category, taxPeriod, entry.description, entry.business_type, clientName(entry.client_id), projectName(entry.project_id), quoteName(entry.quote_id), invoiceName(entry.invoice_id), entry.receipt_id ? 'receipt attached' : 'no receipt'].filter(Boolean).join(' ').toLowerCase();
 }
 
 function ledgerRecordAttributes(entry, extraClass='') {
@@ -2519,7 +2551,7 @@ function ledgerCardHtml(entry) {
   return `<article ${ledgerRecordAttributes(entry, 'ledger-record-card')}>
     <button class="ledger-card-open" type="button" data-ledger-id="${Number(entry.id)}" aria-label="Open ${escapeHtml(ledgerKindLabel(entry.kind))} ledger entry for ${escapeHtml(entry.category)}">
       <span class="ledger-card-top"><strong>${shortDate(entry.entry_date)}</strong>${ledgerKindChip(entry.kind)}</span>
-      <span class="ledger-card-category"><strong>${escapeHtml(entry.category)}</strong>${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</span>
+      <span class="ledger-card-category"><strong>${escapeHtml(entry.category)}</strong>${ledgerSalesTaxPeriodHtml(entry)}${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</span>
       <span class="ledger-card-amount ledger-amount-${escapeHtml(normalizeLedgerKind(entry.kind))}">${money(entry.amount)}</span>
       <span class="ledger-card-context"><b>${escapeHtml(context)}</b>${project ? `<span>${escapeHtml(project)}</span>` : ''}${linked ? `<span>${escapeHtml(linked)}</span>` : ''}<small>${receiptState}</small></span>
     </button>
@@ -2538,6 +2570,9 @@ function ledgerEditorShellHtml({editing=null, formId='ledgerForm', scopedClientI
   const projectId = editing?.project_id || scopedProjectId || '';
   const kind = normalizeLedgerKind(presetKind || editing?.kind || 'income');
   const businessType = editing?.business_type || 'client';
+  const taxPeriodHelp = editing?.category === SALES_TAX_PERIOD_CATEGORY && !editing?.sales_tax_period
+    ? 'Tax Period: Unassigned. Select the quarter this payment covered before saving.'
+    : 'The transaction date stays unchanged; this quarter controls which NY sales-tax reserve is reduced.';
   const closeId = closeButtonId ? ` id="${closeButtonId}"` : '';
   const cancelId = cancelButtonId ? ` id="${cancelButtonId}"` : '';
   const clientField = scopedClientId
@@ -2551,6 +2586,7 @@ function ledgerEditorShellHtml({editing=null, formId='ledgerForm', scopedClientI
           <label class="ledger-field"><span>Account Type</span><select name="kind"><option value="income">Income</option><option value="cogs">Cost of Goods Sold</option><option value="expense">Expenses</option></select></label>
           <label class="ledger-field"><span>Category</span><select name="category" required><option value="">Select category...</option></select></label>
           <label class="ledger-field"><span>Amount</span><input name="amount" type="number" step="0.01" min="0" inputmode="decimal" required value="${escapeHtml(editing?.amount ?? '')}"></label>
+          <label class="ledger-field ledger-sales-tax-period-field hidden" data-ledger-sales-tax-period-wrap><span>Applies To NY Sales Tax Quarter</span><select name="sales_tax_period" disabled><option value="">Select quarter...</option>${salesTaxPeriodOptions(editing?.sales_tax_period || '')}</select><small>${escapeHtml(taxPeriodHelp)}</small></label>
           <label class="ledger-field ledger-description-field"><span>Description</span><textarea name="description" rows="4" placeholder="What was this transaction for?">${escapeHtml(editing?.description)}</textarea></label>
         </div></section>
         <section class="ledger-editor-section" aria-labelledby="${formId}ContextHeading"><div class="ledger-editor-section-head"><span>2</span><div><h3 id="${formId}ContextHeading">Business Context</h3><p>Classify administrative activity or connect client work to its records.</p></div></div><div class="ledger-editor-grid ledger-context-grid">
@@ -2669,7 +2705,7 @@ async function renderLedger(editId=null) {
   const ledgerRows = data.items.map(entry => {
     const project = projectName(entry.project_id);
     const client = entry.business_type === 'admin' ? 'Administrative' : (clientName(entry.client_id) || 'No client');
-    return [shortDate(entry.entry_date), ledgerKindChip(entry.kind), `<div class="ledger-category-cell"><strong>${escapeHtml(entry.category)}</strong>${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</div>`, `<div class="ledger-context-cell"><strong>${escapeHtml(client)}</strong>${project ? `<span>${escapeHtml(project)}</span>` : ''}</div>`, ledgerLinkedRecordHtml(entry), `<strong class="ledger-amount ledger-amount-${escapeHtml(normalizeLedgerKind(entry.kind))}">${money(entry.amount)}</strong>`, entry.receipt_id ? receiptPreviewButton(entry.receipt_id, 'Preview') : '<span class="ledger-empty-link">None</span>', rowActions('ledger', entry.id)];
+    return [shortDate(entry.entry_date), ledgerKindChip(entry.kind), `<div class="ledger-category-cell"><strong>${escapeHtml(entry.category)}</strong>${ledgerSalesTaxPeriodHtml(entry)}${entry.description ? `<span>${escapeHtml(entry.description)}</span>` : '<span>No description</span>'}</div>`, `<div class="ledger-context-cell"><strong>${escapeHtml(client)}</strong>${project ? `<span>${escapeHtml(project)}</span>` : ''}</div>`, ledgerLinkedRecordHtml(entry), `<strong class="ledger-amount ledger-amount-${escapeHtml(normalizeLedgerKind(entry.kind))}">${money(entry.amount)}</strong>`, entry.receipt_id ? receiptPreviewButton(entry.receipt_id, 'Preview') : '<span class="ledger-empty-link">None</span>', rowActions('ledger', entry.id)];
   });
   const rowAttributes = data.items.map(entry => `${ledgerRecordAttributes(entry, 'ledger-record-row')} role="button" tabindex="0"`);
   const listHtml = data.items.length
@@ -3222,14 +3258,10 @@ function reportRangeFromControls() {
   }
   if (mode === 'ny-quarter') {
     const quarter = Number(document.querySelector('#reportQuarter')?.value || 1);
-    const ranges = {
-      1: [`${year - 1}-12-01`, `${year}-02-${String(lastDayOfMonth(year, 1)).padStart(2,'0')}`, `NY Sales Tax Q1 ${year} (Dec-Feb)`],
-      2: [`${year}-03-01`, `${year}-05-31`, `NY Sales Tax Q2 ${year} (Mar-May)`],
-      3: [`${year}-06-01`, `${year}-08-31`, `NY Sales Tax Q3 ${year} (Jun-Aug)`],
-      4: [`${year}-09-01`, `${year}-11-30`, `NY Sales Tax Q4 ${year} (Sep-Nov)`],
-    };
-    const [start, end, label] = ranges[quarter];
-    return { start, end, label };
+    const key = `${year}-Q${quarter}`;
+    const period = salesTaxPeriodByKey(key);
+    if (!period) throw new Error('NY sales-tax period options are unavailable. Refresh and try again.');
+    return { start: period.start_date, end: period.end_date, label: period.report_label, salesTaxPeriod: key };
   }
   const start = document.querySelector('#reportStart')?.value || `${year}-01-01`;
   const end = document.querySelector('#reportEnd')?.value || `${year}-12-31`;
@@ -3336,6 +3368,11 @@ function renderReportResults(data, range) {
   const projectRows = (data.by_project || []).map(r => [escapeHtml(r.name), money(r.revenue), money(r.expenses), money(r.net)]);
   const clientReportRows = (data.client_report || []).map(r => [escapeHtml(r.client), r.projects, r.quotes, r.invoices, r.labor_entries, money(r.ledger_net), money(r.invoice_total), money(r.outstanding)]);
   const projectReportRows = (data.project_report || []).map(r => [escapeHtml(r.project), escapeHtml(r.client), statusLabel(r.status), r.quotes, r.invoices, r.labor_entries, money(r.ledger_net), money(r.invoice_total)]);
+  const isNySalesTaxQuarter = Boolean(range.salesTaxPeriod);
+  const salesTaxPaymentLabel = isNySalesTaxQuarter ? 'Applied Payments' : 'Paid';
+  const taxPaymentHelper = isNySalesTaxQuarter
+    ? `Sales tax payments applied to this quarter: ${money(c.sales_tax_paid)}. Income tax paid within the selected dates: ${money(c.income_tax_paid)}.`
+    : `Total tax paid in the selected period: ${money(c.total_tax_paid)}`;
 
   return `<div class="report-workspace">
     <header class="report-period-banner">
@@ -3367,14 +3404,14 @@ function renderReportResults(data, range) {
       <div class="report-reserve-grid">
         <article class="report-reserve-card report-reserve-sales">
           <div><span class="report-reserve-icon" aria-hidden="true">S</span><div><h3>Sales Tax</h3><p>Conservative 7% hold on gross revenue</p></div></div>
-          <dl><div><dt>Estimated Hold</dt><dd>${money(c.gross_sales_tax_estimate)}</dd></div><div><dt>Paid</dt><dd>${money(c.sales_tax_paid)}</dd></div><div class="report-reserve-remaining"><dt>Remaining</dt><dd>${money(c.estimated_sales_tax)}</dd></div></dl>
+          <dl><div><dt>Estimated Hold</dt><dd>${money(c.gross_sales_tax_estimate)}</dd></div><div><dt>${salesTaxPaymentLabel}</dt><dd>${money(c.sales_tax_paid)}</dd></div><div class="report-reserve-remaining"><dt>Remaining</dt><dd>${money(c.estimated_sales_tax)}</dd></div></dl>
         </article>
         <article class="report-reserve-card report-reserve-income">
           <div><span class="report-reserve-icon" aria-hidden="true">I</span><div><h3>Income Tax</h3><p>Configured-rate hold on net income</p></div></div>
           <dl><div><dt>Estimated Hold</dt><dd>${money(c.gross_income_tax_estimate)}</dd></div><div><dt>Paid</dt><dd>${money(c.income_tax_paid)}</dd></div><div class="report-reserve-remaining"><dt>Remaining</dt><dd>${money(c.estimated_income_tax)}</dd></div></dl>
         </article>
       </div>
-      <div class="report-reserve-total"><span>Total remaining tax reserve</span><strong>${money(c.estimated_tax_owed)}</strong><small>Total tax paid in the selected period: ${money(c.total_tax_paid)}</small></div>
+      <div class="report-reserve-total"><span>Total remaining tax reserve</span><strong>${money(c.estimated_tax_owed)}</strong><small>${escapeHtml(taxPaymentHelper)}</small></div>
     </section>
 
     <section class="report-section" aria-labelledby="reportBreakdownTitle">
@@ -3464,7 +3501,6 @@ async function renderReports() {
   };
   const run = async () => {
     saveControls();
-    const range = reportRangeFromControls();
     const error = document.querySelector('#reportError');
     const button = form.querySelector('.report-run-button');
     error.classList.add('hidden');
@@ -3472,7 +3508,10 @@ async function renderReports() {
     button.disabled = true;
     button.textContent = 'Running...';
     try {
-      const data = await api(`/api/reports/money-flow?start_date=${range.start}&end_date=${range.end}`);
+      const range = reportRangeFromControls();
+      const params = new URLSearchParams({start_date: range.start, end_date: range.end});
+      if (range.salesTaxPeriod) params.set('sales_tax_period', range.salesTaxPeriod);
+      const data = await api(`/api/reports/money-flow?${params}`);
       document.querySelector('#reportResults').innerHTML = renderReportResults(data, range);
     } catch (err) {
       error.textContent = err.message || 'Unable to run this report.';

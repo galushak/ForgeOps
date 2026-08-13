@@ -87,6 +87,8 @@ def run_lightweight_migrations() -> None:
                 conn.execute(text("ALTER TABLE ledgerentry ADD COLUMN quote_id INTEGER"))
             if "invoice_id" not in existing_columns:
                 conn.execute(text("ALTER TABLE ledgerentry ADD COLUMN invoice_id INTEGER"))
+            if "sales_tax_period" not in existing_columns:
+                conn.execute(text("ALTER TABLE ledgerentry ADD COLUMN sales_tax_period VARCHAR(7)"))
             conn.execute(text("UPDATE ledgerentry SET kind = 'income' WHERE kind = 'revenue'"))
 
 
