@@ -1,4 +1,4 @@
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -1312,6 +1312,50 @@ function setInvoiceEditorPageState(active) {
   else mobileNavigation.removeAttribute('aria-hidden');
 }
 
+function setLaborEditorPageState(active) {
+  document.body.classList.toggle('labor-editor-open', active);
+  const mobileNavigation = document.querySelector('.mobile-bottom-nav');
+  if (!mobileNavigation) return;
+  mobileNavigation.inert = active;
+  if (active) mobileNavigation.setAttribute('aria-hidden', 'true');
+  else mobileNavigation.removeAttribute('aria-hidden');
+}
+
+function setupLaborModal({editing=null, rerender}) {
+  const modal = root.querySelector('#laborModal');
+  const openButton = root.querySelector('#openLaborModal');
+  if (!modal || !openButton) return;
+  let inertPeers = [];
+  const setBackgroundInert = active => {
+    if (active) inertPeers = [...root.children].filter(child => child !== modal);
+    inertPeers.forEach(child => { child.inert = active; });
+  };
+  const onKeydown = event => { if (event.key === 'Escape') closeModal(); };
+  const openModal = () => {
+    if (!state.laborReturnFocusSelector) state.laborReturnFocusSelector = '#openLaborModal';
+    modal.classList.remove('hidden');
+    setBackgroundInert(true);
+    setLaborEditorPageState(true);
+    document.addEventListener('keydown', onKeydown);
+    setTimeout(() => modal.querySelector(editing ? 'select[name="status"]' : 'input[name="work_date"]')?.focus(), 0);
+  };
+  const closeModal = async () => {
+    document.removeEventListener('keydown', onKeydown);
+    setBackgroundInert(false);
+    setLaborEditorPageState(false);
+    const focusSelector = state.laborReturnFocusSelector || '#openLaborModal';
+    state.laborReturnFocusSelector = '';
+    await Promise.resolve(rerender());
+    setTimeout(() => (root.querySelector(focusSelector) || root.querySelector('#openLaborModal'))?.focus(), 0);
+  };
+  modal._closeLaborEditor = closeModal;
+  openButton.onclick = openModal;
+  modal.querySelector('#closeLaborModal')?.addEventListener('click', closeModal);
+  modal.querySelector('#cancelLaborModal')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
+  if (editing) openModal();
+}
+
 function setupInvoiceModal({editing=null, autoOpen=false, rerender}) {
   const modal = root.querySelector('#invoiceModal');
   const openButton = root.querySelector('#openInvoiceModal');
@@ -1667,7 +1711,10 @@ function attachLedgerRowClicks() {
 
 function attachLaborRowClicks() {
   root.querySelectorAll('.labor-table .labor-record-row[data-labor-id]').forEach(row => {
-    const open = () => editRecord('labor', Number(row.dataset.laborId));
+    const open = () => {
+      state.laborReturnFocusSelector = `[data-action="edit"][data-type="labor"][data-id="${Number(row.dataset.laborId)}"]`;
+      return editRecord('labor', Number(row.dataset.laborId));
+    };
     row.addEventListener('click', event => {
       if (event.target.closest('button, a, input, select, textarea')) return;
       open();
@@ -1678,6 +1725,12 @@ function attachLaborRowClicks() {
       event.preventDefault();
       open();
     });
+  });
+  root.querySelectorAll('.labor-card-open[data-labor-id]').forEach(button => {
+    button.onclick = () => {
+      state.laborReturnFocusSelector = `[data-action="edit"][data-type="labor"][data-id="${Number(button.dataset.laborId)}"]`;
+      return editRecord('labor', Number(button.dataset.laborId));
+    };
   });
 }
 async function deleteRecord(type, id) {
@@ -2404,32 +2457,241 @@ async function renderLedger(editId=null) {
   attachLedgerRowClicks();
 }
 
-async function renderLabor(editId=null) {
-  const data = await api('/api/labor?page_size=100');
-  const settingsResponse = await api('/api/admin/settings');
-  const settings = settingsResponse.settings || {};
-  const editing = editId ? data.items.find(i => i.id === editId) : null;
+function laborStatusChip(status) {
+  const normalized = ['planned', 'completed', 'invoiced', 'paid', 'canceled'].includes(status) ? status : 'planned';
+  return `<span class="labor-chip labor-status-${normalized}">${statusLabel(status)}</span>`;
+}
+
+function laborBillingChip(entry) {
+  return entry.is_invoiced
+    ? '<span class="labor-chip labor-billing-invoiced">Invoiced</span>'
+    : '<span class="labor-chip labor-billing-available">Available / Uninvoiced</span>';
+}
+
+function laborInvoiceContext(entry) {
+  return invoiceName(entry.invoice_id) || entry.invoice_number || '';
+}
+
+function laborSearchValue(entry) {
+  return [entry.work_date, clientName(entry.client_id), projectName(entry.project_id), entry.service_type, entry.notes, statusLabel(entry.status), laborInvoiceContext(entry), entry.is_invoiced ? 'invoiced billed' : 'available uninvoiced'].filter(Boolean).join(' ').toLowerCase();
+}
+
+function laborRecordAttributes(entry, extraClass='') {
+  return `class="${extraClass}" data-labor-record data-labor-id="${Number(entry.id)}" data-labor-client="${Number(entry.client_id)}" data-labor-project="${entry.project_id ? Number(entry.project_id) : ''}" data-labor-status="${escapeHtml(entry.status)}" data-labor-invoiced="${entry.is_invoiced ? 'true' : 'false'}" data-labor-search="${escapeHtml(laborSearchValue(entry))}"`;
+}
+
+function laborCardHtml(entry) {
+  const project = projectName(entry.project_id);
+  const invoice = laborInvoiceContext(entry);
+  return `<article ${laborRecordAttributes(entry, 'labor-record-card')}>
+    <button class="labor-card-open" type="button" data-labor-id="${Number(entry.id)}" aria-label="Open labor entry for ${escapeHtml(entry.service_type)}">
+      <span class="labor-card-top"><strong>${shortDate(entry.work_date)}</strong>${laborStatusChip(entry.status)}</span>
+      <span class="labor-card-context"><b>${escapeHtml(clientName(entry.client_id))}</b>${project ? `<span>${escapeHtml(project)}</span>` : '<span>No project</span>'}</span>
+      <span class="labor-card-service"><strong>${escapeHtml(entry.service_type)}</strong>${entry.notes ? `<span>${escapeHtml(entry.notes)}</span>` : ''}</span>
+      <span class="labor-card-values"><span><small>Hours</small><b>${escapeHtml(entry.hours)}</b></span><span><small>Rate</small><b>${money(entry.hourly_rate)}</b></span><span><small>Total</small><strong>${money(entry.line_total)}</strong></span></span>
+      <span class="labor-card-billing">${laborBillingChip(entry)}${invoice ? `<small>${escapeHtml(invoice)}</small>` : ''}</span>
+    </button>
+    <div class="labor-card-actions">${rowActions('labor', entry.id)}</div>
+  </article>`;
+}
+
+function laborListEmptyHtml({filtered=false}={}) {
+  if (filtered) return `<section class="panel labor-list-empty hidden" id="laborFilterEmpty"><strong>No Labor matches these filters.</strong><span>Try another search or reset the filters.</span><button class="ghost" type="button" data-reset-labor-filters>Reset Filters</button></section>`;
+  return `<section class="panel labor-list-empty"><strong>No Labor yet.</strong><span>Log completed or planned work for a Client or Project.</span><button class="primary" id="emptyAddLabor" type="button">Add Labor</button></section>`;
+}
+
+function laborServiceOptions(selected='') {
+  const options = state.dropdowns.service_type || [];
+  const hasSelected = options.some(option => String(option.label) === String(selected));
+  const current = selected && !hasSelected ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}</option>` : '';
+  return `${current}${optionList(options, selected)}`;
+}
+
+function laborEditorShellHtml({editing=null, settings={}, formId='laborForm', scopedClientId='', scopedProjectId='', clientLabel='', clientSelectId='laborClient', projectSelectId='laborProject', invoiceSelectId='laborInvoice', closeButtonId='', cancelButtonId=''}) {
+  const isEdit = Boolean(editing);
+  const clientId = editing?.client_id || scopedClientId || '';
+  const projectId = editing?.project_id || scopedProjectId || '';
   const defaultRate = settings.default_labor_rate || '100.00';
-  const laborRows = data.items.map(l => [l.work_date,escapeHtml(clientName(l.client_id)),escapeHtml(projectName(l.project_id)),escapeHtml(l.service_type),l.hours,money(l.hourly_rate),money(l.line_total),`<span class="status">${statusLabel(l.status)}</span>`,escapeHtml(invoiceName(l.invoice_id) || l.invoice_number || ''),l.is_invoiced?'Yes':'No',rowActions('labor', l.id)]);
-  const laborRowAttrs = data.items.map(l => `class="labor-record-row" role="button" tabindex="0" data-labor-id="${Number(l.id)}"`);
-  root.innerHTML = `<div class="page-actions"><label class="search-field compact-search">Search<input id="laborSearch" type="search" placeholder="Search labor..."></label><button class="primary" id="openLaborModal" type="button">+ Add Labor Entry</button></div>
-  ${table(['Date','Client','Project','Service','Hours','Rate','Total','Status','Invoice','Invoiced','Actions'], laborRows, 'labor-table', laborRowAttrs)}
-  <div id="laborModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="laborModalTitle"><div class="modal-card"><div class="modal-header"><div><h2 id="laborModalTitle">${editing ? 'Edit Labor Entry' : 'Add Labor Entry'}</h2><p>${editing ? 'Update this labor entry.' : 'Add billable or internal work for a client/project.'}</p></div><button class="ghost modal-close" id="closeLaborModal" type="button" aria-label="Close labor form">×</button></div><form id="laborForm" class="form-grid">
-    <label class="labor-field">Work Date<input name="work_date" type="date" required value="${escapeHtml(editing?.work_date || todayIso())}"></label><label class="labor-field">Client<select name="client_id" id="laborClient" required>${clientOptions(editing?.client_id)}</select></label>
-    <label class="labor-field">Project<select name="project_id" id="laborProject">${projectOptions(editing?.project_id, editing?.client_id)}</select></label><label class="labor-field">Status<select name="status"><option value="planned">Planned</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option><option value="canceled">Canceled</option></select></label>
-    <label class="labor-field">Service Type<select name="service_type" required><option value="">Select service...</option>${optionList(state.dropdowns.service_type, editing?.service_type)}</select></label><label class="labor-field">Hours<input name="hours" type="number" step="0.25" min="0" required value="${escapeHtml(editing?.hours ?? '')}"></label>
-    <label class="labor-field">Hourly Rate<input name="hourly_rate" type="number" step="0.01" min="0.01" required value="${escapeHtml(editing?.hourly_rate || defaultRate)}"></label><label class="labor-field">Invoice<select name="invoice_id" id="laborInvoice">${invoiceOptions(editing?.invoice_id, editing?.client_id, editing?.project_id)}</select></label>
-    <label class="labor-field">Invoice Number<input name="invoice_number" value="${escapeHtml(editing?.invoice_number)}" placeholder="Optional manual invoice #"></label>
-    <label class="check-row labor-invoiced-toggle"><input name="is_invoiced" type="checkbox" ${editing?.is_invoiced ? 'checked' : ''}> Mark as invoiced</label>
-    <label class="full labor-field labor-notes-field">Notes<textarea name="notes" rows="3" placeholder="Internal labor notes">${escapeHtml(editing?.notes)}</textarea></label>
-    <div class="form-actions labor-modal-actions"><button class="ghost" type="button" id="cancelLaborModal">Cancel</button><button class="primary" type="submit">${editing ? 'Update Labor Entry' : 'Save Labor Entry'}</button></div>
-  </form></div></div>`;
-  laborForm.status.value = editing?.status || 'completed';
-  laborClient.onchange = () => { laborProject.innerHTML = projectOptions('', laborClient.value); laborInvoice.innerHTML = invoiceOptions('', laborClient.value, ''); };
-  laborProject.onchange = () => { laborInvoice.innerHTML = invoiceOptions('', laborClient.value, laborProject.value); };
-  laborForm.onsubmit = async e => { e.preventDefault(); const payload = clean(formData(laborForm)); payload.client_id = Number(payload.client_id); numOrDelete(payload, 'project_id'); numOrDelete(payload, 'invoice_id'); payload.hours = Number(payload.hours); payload.hourly_rate = Number(payload.hourly_rate); payload.is_invoiced = formBool(laborForm, 'is_invoiced'); try { if (editing) await api(`/api/labor/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/labor', {method:'POST', body: JSON.stringify(payload)}); show(editing ? 'Labor entry updated' : 'Labor entry saved'); await renderLabor(); } catch (err) { alert(err.message); } };
-  setupModal('laborModal','openLaborModal','closeLaborModal','cancelLaborModal',editing,renderLabor,'input[name="work_date"]');
-  attachPageSearch('laborSearch');
+  const closeId = closeButtonId ? ` id="${closeButtonId}"` : '';
+  const cancelId = cancelButtonId ? ` id="${cancelButtonId}"` : '';
+  const clientField = scopedClientId
+    ? `<input type="hidden" name="client_id" value="${Number(scopedClientId)}"><label class="labor-field"><span>Client</span><input value="${clientLabel}" disabled aria-label="Client"></label>`
+    : `<label class="labor-field"><span>Client</span><select name="client_id" id="${clientSelectId}" required>${clientOptions(clientId)}</select></label>`;
+  return `<div class="modal-card wide-modal labor-editor-shell"><header class="modal-header labor-editor-header"><div><p class="labor-editor-eyebrow">Labor workflow</p><h2 id="${formId}Title">${isEdit ? 'Edit Labor' : 'Add Labor'}</h2><p>${isEdit ? 'Review the work details, current status, and billing state.' : 'Log work for a Client or Project.'}</p></div><button class="ghost modal-close"${closeId} type="button" aria-label="Close labor form">×</button></header>
+    <form id="${formId}" class="labor-editor-form">
+      <div class="labor-editor-scroll">
+        <section class="labor-editor-section" aria-labelledby="${formId}ContextHeading"><div class="labor-editor-section-head"><span>1</span><div><h3 id="${formId}ContextHeading">Work Context</h3><p>Connect this work to the correct Client and Project.</p></div></div><div class="labor-editor-grid">${clientField}<label class="labor-field"><span>Project</span><select name="project_id" id="${projectSelectId}">${projectOptions(projectId, clientId)}</select></label></div></section>
+        <section class="labor-editor-section" aria-labelledby="${formId}DetailsHeading"><div class="labor-editor-section-head"><span>2</span><div><h3 id="${formId}DetailsHeading">Work Details</h3><p>Record what was done, when, and its current status.</p></div><span class="labor-status-preview">${laborStatusChip(editing?.status || 'completed')}</span></div><div class="labor-editor-grid labor-work-grid">
+          <label class="labor-field"><span>Work Date</span><input name="work_date" type="date" required value="${escapeHtml(editing?.work_date || todayIso())}"></label>
+          <label class="labor-field"><span>Status</span><select name="status"><option value="planned">Planned</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option><option value="canceled">Canceled</option></select></label>
+          <label class="labor-field labor-service-field"><span>Service / Description</span><select name="service_type" required><option value="">Select service...</option>${laborServiceOptions(editing?.service_type || '')}</select></label>
+          <label class="labor-field"><span>Hours</span><input name="hours" type="number" step="0.25" min="0" inputmode="decimal" required value="${escapeHtml(editing?.hours ?? '')}"></label>
+          <label class="labor-field"><span>Hourly Rate</span><input name="hourly_rate" type="number" step="0.01" min="0.01" inputmode="decimal" required value="${escapeHtml(editing?.hourly_rate || defaultRate)}"></label>
+          <div class="labor-value-summary"><small>Labor Value</small><strong data-labor-total>${money(editing?.line_total || 0)}</strong><span>Hours × hourly rate</span></div>
+          <label class="labor-field labor-notes-field"><span>Notes</span><textarea name="notes" rows="4" placeholder="Internal labor notes">${escapeHtml(editing?.notes)}</textarea></label>
+        </div></section>
+        <section class="labor-editor-section" aria-labelledby="${formId}BillingHeading"><div class="labor-editor-section-head"><span>3</span><div><h3 id="${formId}BillingHeading">Billing State</h3><p>Review whether this work is available for billing or already invoiced.</p></div></div>
+          <div class="labor-billing-summary" aria-live="polite"><div><small>Current billing state</small><strong data-labor-billing-label>${editing?.is_invoiced ? 'Invoiced' : 'Available / Uninvoiced'}</strong><span data-labor-billing-context>${laborInvoiceContext(editing || {}) ? escapeHtml(laborInvoiceContext(editing)) : 'No linked Invoice'}</span></div>${laborBillingChip(editing || {})}</div>
+          <div class="labor-editor-grid labor-billing-controls"><label class="labor-field"><span>Linked Invoice</span><select name="invoice_id" id="${invoiceSelectId}">${invoiceOptions(editing?.invoice_id, clientId, projectId)}</select></label><label class="labor-field"><span>Invoice Number</span><input name="invoice_number" value="${escapeHtml(editing?.invoice_number)}" placeholder="Optional manual invoice #"></label><label class="labor-invoiced-toggle"><input name="is_invoiced" type="checkbox" ${editing?.is_invoiced ? 'checked' : ''}><span><strong>Marked as invoiced</strong><small>Preserves the existing manual billing-state control.</small></span></label></div>
+        </section>
+      </div>
+      <footer class="labor-editor-actions"><button class="ghost ${cancelButtonId ? '' : 'quick-cancel'}" type="button"${cancelId}>Cancel</button><button class="primary" type="submit">${isEdit ? 'Update Labor' : 'Save Labor'}</button></footer>
+    </form></div>`;
+}
+
+function wireLaborEditor(container, {formId='laborForm', editing=null, clientId='', projectSelectId='laborProject', invoiceSelectId='laborInvoice', onSave}) {
+  const form = container.querySelector(`#${formId}`);
+  if (!form) return;
+  const clientSelect = form.elements.client_id;
+  const projectSelect = container.querySelector(`#${projectSelectId}`);
+  const invoiceSelect = container.querySelector(`#${invoiceSelectId}`);
+  const statusSelect = form.elements.status;
+  const invoicedToggle = form.elements.is_invoiced;
+  const invoiceNumber = form.elements.invoice_number;
+  const total = container.querySelector('[data-labor-total]');
+  const billingLabel = container.querySelector('[data-labor-billing-label]');
+  const billingContext = container.querySelector('[data-labor-billing-context]');
+  const billingChip = container.querySelector('.labor-billing-summary > .labor-chip');
+  const statusPreview = container.querySelector('.labor-status-preview');
+  statusSelect.value = editing?.status || 'completed';
+  const currentClientId = () => clientId || clientSelect?.value || '';
+  const updateInvoiceOptions = (selected='') => {
+    if (invoiceSelect) invoiceSelect.innerHTML = invoiceOptions(selected, currentClientId(), projectSelect?.value || '');
+  };
+  clientSelect?.addEventListener('change', () => {
+    if (projectSelect) projectSelect.innerHTML = projectOptions('', clientSelect.value);
+    updateInvoiceOptions('');
+    updateBillingSummary();
+  });
+  projectSelect?.addEventListener('change', () => { updateInvoiceOptions(''); updateBillingSummary(); });
+  const updateTotal = () => {
+    const value = Number(form.elements.hours.value || 0) * Number(form.elements.hourly_rate.value || 0);
+    if (total) total.textContent = money(value);
+  };
+  const updateStatusPreview = () => { if (statusPreview) statusPreview.innerHTML = laborStatusChip(statusSelect.value); };
+  function updateBillingSummary() {
+    const isInvoiced = Boolean(invoicedToggle?.checked);
+    const selectedInvoice = invoiceSelect?.selectedOptions?.[0]?.textContent?.trim();
+    const manualNumber = invoiceNumber?.value.trim();
+    if (billingLabel) billingLabel.textContent = isInvoiced ? 'Invoiced' : 'Available / Uninvoiced';
+    if (billingContext) billingContext.textContent = selectedInvoice && invoiceSelect.value ? selectedInvoice : (manualNumber || 'No linked Invoice');
+    if (billingChip) {
+      billingChip.className = `labor-chip ${isInvoiced ? 'labor-billing-invoiced' : 'labor-billing-available'}`;
+      billingChip.textContent = isInvoiced ? 'Invoiced' : 'Available / Uninvoiced';
+    }
+  }
+  form.elements.hours.addEventListener('input', updateTotal);
+  form.elements.hourly_rate.addEventListener('input', updateTotal);
+  statusSelect.addEventListener('change', updateStatusPreview);
+  invoiceSelect?.addEventListener('change', updateBillingSummary);
+  invoiceNumber?.addEventListener('input', updateBillingSummary);
+  invoicedToggle?.addEventListener('change', updateBillingSummary);
+  updateTotal();
+  updateStatusPreview();
+  updateBillingSummary();
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const payload = clean(formData(form));
+    payload.client_id = Number(payload.client_id);
+    numOrDelete(payload, 'project_id');
+    numOrDelete(payload, 'invoice_id');
+    payload.hours = Number(payload.hours);
+    payload.hourly_rate = Number(payload.hourly_rate);
+    payload.is_invoiced = formBool(form, 'is_invoiced');
+    await onSave(payload);
+  };
+}
+
+function attachLaborListControls(totalCount) {
+  const search = root.querySelector('#laborSearch');
+  const status = root.querySelector('#laborStatusFilter');
+  const client = root.querySelector('#laborClientFilter');
+  const project = root.querySelector('#laborProjectFilter');
+  const billing = root.querySelector('#laborBillingFilter');
+  const tableRows = [...root.querySelectorAll('.labor-table [data-labor-record]')];
+  const cards = [...root.querySelectorAll('.labor-mobile-list [data-labor-record]')];
+  const empty = root.querySelector('#laborFilterEmpty');
+  const resultCount = root.querySelector('#laborResultCount');
+  const indicator = root.querySelector('#laborFilterIndicator');
+  const desktopList = root.querySelector('.labor-desktop-list');
+  const mobileList = root.querySelector('.labor-mobile-list');
+  const matches = record => {
+    const query = search.value.trim().toLowerCase();
+    return (!query || record.dataset.laborSearch.includes(query))
+      && (status.value === 'all' || record.dataset.laborStatus === status.value)
+      && (client.value === 'all' || record.dataset.laborClient === client.value)
+      && (project.value === 'all' || record.dataset.laborProject === project.value)
+      && (billing.value === 'all' || record.dataset.laborInvoiced === billing.value);
+  };
+  const apply = () => {
+    state.laborStatusFilter = status.value;
+    state.laborClientFilter = client.value;
+    state.laborProjectFilter = project.value;
+    state.laborBillingFilter = billing.value;
+    let shown = 0;
+    cards.forEach(card => { const visible = matches(card); card.classList.toggle('hidden', !visible); if (visible) shown += 1; });
+    tableRows.forEach(row => row.classList.toggle('hidden', !matches(row)));
+    const hasQueryOrFilter = Boolean(search.value.trim()) || [status, client, project, billing].some(control => control.value !== 'all');
+    empty?.classList.toggle('hidden', shown > 0 || !hasQueryOrFilter);
+    desktopList?.classList.toggle('labor-no-matches', shown === 0 && hasQueryOrFilter);
+    mobileList?.classList.toggle('labor-no-matches', shown === 0 && hasQueryOrFilter);
+    if (resultCount) resultCount.textContent = hasQueryOrFilter ? `${shown} of ${totalCount} labor entr${totalCount === 1 ? 'y' : 'ies'}` : `${totalCount} labor entr${totalCount === 1 ? 'y' : 'ies'}`;
+    const activeFilters = [status, client, project, billing].filter(control => control.value !== 'all').length;
+    if (indicator) {
+      indicator.textContent = `${activeFilters} active filter${activeFilters === 1 ? '' : 's'}`;
+      indicator.classList.toggle('hidden', activeFilters === 0);
+    }
+  };
+  [search, status, client, project, billing].forEach(control => control?.addEventListener(control === search ? 'input' : 'change', apply));
+  root.querySelectorAll('[data-reset-labor-filters]').forEach(button => button.addEventListener('click', () => {
+    search.value = '';
+    status.value = 'all'; client.value = 'all'; project.value = 'all'; billing.value = 'all';
+    apply();
+    search.focus();
+  }));
+  apply();
+}
+
+async function renderLabor(editId=null) {
+  setLaborEditorPageState(false);
+  const [data, settingsResponse] = await Promise.all([api('/api/labor?page_size=100'), api('/api/admin/settings')]);
+  const settings = settingsResponse.settings || {};
+  const editing = editId ? data.items.find(item => Number(item.id) === Number(editId)) : null;
+  const clientFilterOptions = state.clients.map(item => `<option value="${Number(item.id)}">${escapeHtml(item.name)}</option>`).join('');
+  const projectFilterOptions = state.projects.map(item => `<option value="${Number(item.id)}">${escapeHtml(item.name)}</option>`).join('');
+  const laborRows = data.items.map(entry => {
+    const project = projectName(entry.project_id);
+    const invoice = laborInvoiceContext(entry);
+    return [shortDate(entry.work_date), `<div class="labor-context-cell"><strong>${escapeHtml(clientName(entry.client_id))}</strong><span>${project ? escapeHtml(project) : 'No project'}</span></div>`, `<div class="labor-service-cell"><strong>${escapeHtml(entry.service_type)}</strong>${entry.notes ? `<span>${escapeHtml(entry.notes)}</span>` : ''}</div>`, laborStatusChip(entry.status), escapeHtml(entry.hours), money(entry.hourly_rate), `<strong>${money(entry.line_total)}</strong>`, `<div class="labor-billing-cell">${laborBillingChip(entry)}${invoice ? `<span>${escapeHtml(invoice)}</span>` : ''}</div>`, rowActions('labor', entry.id)];
+  });
+  const rowAttributes = data.items.map(entry => `${laborRecordAttributes(entry, 'labor-record-row')} role="button" tabindex="0"`);
+  const listHtml = data.items.length
+    ? `<div class="labor-desktop-list">${table(['Date','Client / Project','Service / Description','Status','Hours','Rate','Total','Billing State','Actions'], laborRows, 'labor-table', rowAttributes)}</div><div class="labor-mobile-list" aria-label="Labor entries">${data.items.map(laborCardHtml).join('')}</div>${laborListEmptyHtml({filtered:true})}`
+    : laborListEmptyHtml();
+  root.innerHTML = `<section class="labor-list-controls panel"><div class="labor-list-primary"><label class="search-field compact-search">Search Labor<input id="laborSearch" type="search" placeholder="Service, Client, Project, notes, or status"></label><button class="primary" id="openLaborModal" type="button">Add Labor</button></div><div class="labor-filter-row"><label class="filter-field">Status<select id="laborStatusFilter"><option value="all">All Statuses</option><option value="planned">Planned</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option><option value="canceled">Canceled</option></select></label><label class="filter-field">Client<select id="laborClientFilter"><option value="all">All Clients</option>${clientFilterOptions}</select></label><label class="filter-field">Project<select id="laborProjectFilter"><option value="all">All Projects</option>${projectFilterOptions}</select></label><label class="filter-field">Billing<select id="laborBillingFilter"><option value="all">All Billing States</option><option value="false">Available / Uninvoiced</option><option value="true">Invoiced</option></select></label><button class="ghost" type="button" data-reset-labor-filters>Reset Filters</button><span class="labor-filter-indicator hidden" id="laborFilterIndicator"></span><span class="labor-result-count" id="laborResultCount">${data.items.length} labor entr${data.items.length === 1 ? 'y' : 'ies'}</span></div></section>
+    ${listHtml}
+    <div id="laborModal" class="modal-backdrop labor-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="laborFormTitle">${laborEditorShellHtml({editing, settings, closeButtonId:'closeLaborModal', cancelButtonId:'cancelLaborModal'})}</div>`;
+  [
+    ['#laborStatusFilter', state.laborStatusFilter],
+    ['#laborClientFilter', state.laborClientFilter],
+    ['#laborProjectFilter', state.laborProjectFilter],
+    ['#laborBillingFilter', state.laborBillingFilter],
+  ].forEach(([selector, value]) => {
+    const control = root.querySelector(selector);
+    control.value = value;
+    if (!control.value) control.value = 'all';
+  });
+  wireLaborEditor(root, {editing, onSave: async payload => {
+    try {
+      if (editing) await api(`/api/labor/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)});
+      else await api('/api/labor', {method:'POST', body: JSON.stringify(payload)});
+      show(editing ? 'Labor entry updated' : 'Labor entry saved');
+      await root.querySelector('#laborModal')._closeLaborEditor();
+    } catch (err) { alert(err.message); }
+  }});
+  setupLaborModal({editing, rerender: renderLabor});
+  root.querySelector('#emptyAddLabor')?.addEventListener('click', () => root.querySelector('#openLaborModal')?.click());
+  if (data.items.length) attachLaborListControls(data.items.length);
   attachRowActions();
   attachLaborRowClicks();
 }
@@ -2462,9 +2724,12 @@ function closeClientQuickModal() {
   if (!modal) return;
   if (modal._quoteEscapeHandler) document.removeEventListener('keydown', modal._quoteEscapeHandler);
   if (modal._invoiceEscapeHandler) document.removeEventListener('keydown', modal._invoiceEscapeHandler);
+  if (modal._laborEscapeHandler) document.removeEventListener('keydown', modal._laborEscapeHandler);
   const closesInvoiceEditor = modal.classList.contains('invoice-editor-backdrop');
-  if (modal.classList.contains('quote-editor-backdrop') || closesInvoiceEditor) [...root.children].forEach(child => { child.inert = false; });
+  const closesLaborEditor = modal.classList.contains('labor-editor-backdrop');
+  if (modal.classList.contains('quote-editor-backdrop') || closesInvoiceEditor || closesLaborEditor) [...root.children].forEach(child => { child.inert = false; });
   if (closesInvoiceEditor) setInvoiceEditorPageState(false);
+  if (closesLaborEditor) setLaborEditorPageState(false);
   const returnFocus = modal._quoteReturnFocus;
   modal.remove();
   setTimeout(() => returnFocus?.isConnected && returnFocus.focus?.(), 0);
@@ -2602,23 +2867,22 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
   if (type === 'labor') {
     const settingsResponse = await api('/api/admin/settings');
     const settings = settingsResponse.settings || {};
-    const defaultRate = settings.default_labor_rate || '100.00';
-    wrapper.innerHTML = `<div class="modal-card"><div class="modal-header"><div><h2>${isEdit ? 'Edit Labor Entry' : 'Add Labor Entry'}</h2><p>${isEdit ? 'Update this labor entry without leaving the client.' : `Add labor for ${clientLabel}.`}</p></div><button class="ghost modal-close" type="button" aria-label="Close labor form">×</button></div><form id="clientLaborForm" class="form-grid">
-      <label>Work Date<input name="work_date" type="date" required value="${escapeHtml(editing?.work_date || todayIso())}"></label>${clientHidden}
-      <label>Project<select name="project_id" id="clientLaborProject">${projectOptions(scopedProjectId, clientId)}</select></label><label>Status<select name="status"><option value="planned">Planned</option><option value="completed">Completed</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option><option value="canceled">Canceled</option></select></label>
-      <label>Service Type<select name="service_type" required><option value="">Select service...</option>${optionList(state.dropdowns.service_type, editing?.service_type)}</select></label><label>Hours<input name="hours" type="number" step="0.25" min="0" required value="${escapeHtml(editing?.hours ?? '')}"></label>
-      <label>Hourly Rate<input name="hourly_rate" type="number" step="0.01" min="0.01" required value="${escapeHtml(editing?.hourly_rate || defaultRate)}"></label><label>Invoice<select name="invoice_id" id="clientLaborInvoice">${invoiceOptions(editing?.invoice_id, clientId, scopedProjectId)}</select></label>
-      <label>Invoice Number<input name="invoice_number" value="${escapeHtml(editing?.invoice_number)}" placeholder="Optional manual invoice #"></label><label class="check-row"><input name="is_invoiced" type="checkbox" ${editing?.is_invoiced ? 'checked' : ''}> Mark as invoiced</label>
-      <label class="full">Notes<textarea name="notes">${escapeHtml(editing?.notes)}</textarea></label>
-      <div class="form-actions"><button class="primary" type="submit">${isEdit ? 'Update Labor Entry' : 'Save Labor Entry'}</button><button class="ghost quick-cancel" type="button">Cancel</button></div>
-    </form></div>`;
+    wrapper.classList.add('labor-editor-backdrop');
+    wrapper.setAttribute('aria-labelledby', 'clientLaborFormTitle');
+    wrapper.innerHTML = laborEditorShellHtml({editing, settings, formId:'clientLaborForm', scopedClientId:clientId, scopedProjectId, clientLabel, projectSelectId:'clientLaborProject', invoiceSelectId:'clientLaborInvoice'});
     root.appendChild(wrapper);
-    const form = wrapper.querySelector('#clientLaborForm');
-    form.status.value = editing?.status || 'completed';
-    const projectSelect = wrapper.querySelector('#clientLaborProject');
-    const invoiceSelect = wrapper.querySelector('#clientLaborInvoice');
-    projectSelect.onchange = () => { invoiceSelect.innerHTML = invoiceOptions('', clientId, projectSelect.value); };
-    form.onsubmit = async e => { e.preventDefault(); const payload = clean(formData(form)); payload.client_id = Number(clientId); numOrDelete(payload, 'project_id'); numOrDelete(payload, 'invoice_id'); payload.hours = Number(payload.hours); payload.hourly_rate = Number(payload.hourly_rate); payload.is_invoiced = formBool(form, 'is_invoiced'); try { if (isEdit) await api(`/api/labor/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/labor', {method:'POST', body: JSON.stringify(payload)}); await closeAfter('labor', isEdit ? 'Labor entry updated' : 'Labor entry saved'); } catch(err) { alert(err.message); } };
+    wrapper._quoteReturnFocus = returnFocus;
+    [...root.children].filter(child => child !== wrapper).forEach(child => { child.inert = true; });
+    setLaborEditorPageState(true);
+    wrapper._laborEscapeHandler = event => { if (event.key === 'Escape') closeClientQuickModal(); };
+    document.addEventListener('keydown', wrapper._laborEscapeHandler);
+    wireLaborEditor(wrapper, {formId:'clientLaborForm', editing, clientId, projectSelectId:'clientLaborProject', invoiceSelectId:'clientLaborInvoice', onSave: async payload => {
+      try {
+        if (isEdit) await api(`/api/labor/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)});
+        else await api('/api/labor', {method:'POST', body: JSON.stringify(payload)});
+        await closeAfter('labor', isEdit ? 'Labor entry updated' : 'Labor entry saved');
+      } catch(err) { alert(err.message); }
+    }});
   }
 
   if (type === 'ledger') {

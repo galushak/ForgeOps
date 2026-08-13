@@ -1,0 +1,487 @@
+/* ForgeOps Phase 5: Labor list, mobile cards, and shared editor. */
+
+.labor-list-controls {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0;
+}
+
+.labor-list-primary,
+.labor-filter-row {
+  display: flex;
+  align-items: end;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+
+.labor-list-primary .search-field {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
+.labor-list-primary .primary { margin-left: auto; }
+
+.labor-filter-row .filter-field {
+  flex: 1 1 150px;
+  max-width: 240px;
+  margin: 0;
+}
+
+.labor-filter-indicator,
+.labor-result-count {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: .82rem;
+  font-weight: 800;
+}
+
+.labor-result-count { margin-left: auto; }
+
+.labor-desktop-list .panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.labor-table {
+  border: 0;
+  border-radius: 0;
+}
+
+.labor-table th,
+.labor-table td { padding: .8rem .7rem; }
+
+.labor-table th:nth-child(5),
+.labor-table th:nth-child(6),
+.labor-table th:nth-child(7),
+.labor-table td:nth-child(5),
+.labor-table td:nth-child(6),
+.labor-table td:nth-child(7) { text-align: right; }
+
+.labor-record-row { cursor: pointer; }
+.labor-record-row:hover td { background: var(--surface-muted); }
+
+.labor-context-cell,
+.labor-service-cell,
+.labor-billing-cell {
+  display: grid;
+  gap: .22rem;
+  min-width: 0;
+}
+
+.labor-context-cell span,
+.labor-service-cell span,
+.labor-billing-cell > span:not(.labor-chip) {
+  color: var(--text-muted);
+  font-size: .78rem;
+  overflow-wrap: anywhere;
+}
+
+.labor-service-cell { min-width: 180px; }
+.labor-service-cell span {
+  max-width: 330px;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.labor-chip {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: .28rem .6rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.labor-status-planned {
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+  color: var(--primary);
+}
+
+.labor-status-completed,
+.labor-status-paid,
+.labor-billing-invoiced {
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 34%, transparent);
+  color: var(--success);
+}
+
+.labor-status-invoiced,
+.labor-billing-available {
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 34%, transparent);
+  color: var(--warning);
+}
+
+.labor-status-canceled {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 34%, transparent);
+  color: var(--danger);
+}
+
+.labor-mobile-list { display: none; }
+
+.labor-list-empty {
+  display: grid;
+  justify-items: start;
+  gap: .45rem;
+  padding: 1.35rem;
+}
+
+.labor-list-empty strong { font-size: 1.05rem; }
+.labor-list-empty span { color: var(--text-muted); }
+.labor-no-matches { display: none !important; }
+
+.labor-editor-backdrop {
+  z-index: 410;
+  align-items: center;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+#laborModal .labor-editor-shell,
+#clientQuickModal.labor-editor-backdrop .labor-editor-shell {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, calc(100vw - 2rem));
+  max-width: 920px;
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+}
+
+.labor-editor-header {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.labor-editor-header h2 { margin: .15rem 0 .2rem; }
+.labor-editor-header p { margin: 0; color: var(--text-muted); }
+.labor-editor-header .modal-close {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 1.5rem;
+}
+
+.labor-editor-eyebrow {
+  color: var(--primary) !important;
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+#laborForm.labor-editor-form,
+#clientLaborForm.labor-editor-form {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+
+.labor-editor-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.labor-editor-section {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.labor-editor-section + .labor-editor-section { margin-top: .9rem; }
+
+.labor-editor-section-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: .7rem;
+  margin-bottom: .8rem;
+}
+
+.labor-editor-section-head > span:first-child {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  color: var(--primary);
+  font-size: .78rem;
+  font-weight: 900;
+}
+
+.labor-editor-section-head h3 { margin: 0; font-size: 1rem; }
+.labor-editor-section-head p { margin: .15rem 0 0; color: var(--text-muted); font-size: .82rem; }
+.labor-status-preview { align-self: center; }
+
+.labor-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+}
+
+.labor-editor-form .labor-field {
+  display: grid;
+  gap: .35rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.labor-editor-form .labor-field > span {
+  color: var(--text-muted);
+  font-size: .76rem;
+  letter-spacing: .02em;
+}
+
+#laborForm.labor-editor-form .labor-field input,
+#laborForm.labor-editor-form .labor-field select,
+#laborForm.labor-editor-form .labor-field textarea,
+#clientLaborForm.labor-editor-form .labor-field input,
+#clientLaborForm.labor-editor-form .labor-field select,
+#clientLaborForm.labor-editor-form .labor-field textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: .72rem .78rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.labor-service-field,
+.labor-notes-field { grid-column: 1 / -1; }
+
+.labor-editor-form .labor-notes-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.labor-value-summary {
+  display: grid;
+  align-content: center;
+  gap: .15rem;
+  min-height: 76px;
+  padding: .75rem .9rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+}
+
+.labor-value-summary small,
+.labor-value-summary span { color: var(--text-muted); }
+.labor-value-summary strong { color: var(--primary); font-size: 1.35rem; }
+.labor-value-summary span { font-size: .72rem; }
+
+.labor-billing-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .8rem;
+  padding: .85rem .95rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+
+.labor-billing-summary > div { display: grid; gap: .12rem; min-width: 0; }
+.labor-billing-summary small,
+.labor-billing-summary span:not(.labor-chip) { color: var(--text-muted); }
+.labor-billing-summary span:not(.labor-chip) { overflow-wrap: anywhere; font-size: .8rem; }
+
+.labor-billing-controls { align-items: end; }
+
+.labor-invoiced-toggle {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  min-height: 64px;
+  margin: 0;
+  padding: .65rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+
+.labor-invoiced-toggle input { width: 20px; height: 20px; flex: 0 0 auto; }
+.labor-invoiced-toggle > span { display: grid; gap: .12rem; }
+.labor-invoiced-toggle small { color: var(--text-muted); font-size: .72rem; font-weight: 500; }
+
+.labor-editor-actions {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: .7rem;
+  padding: .85rem 1.25rem calc(.85rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+  box-shadow: 0 -8px 18px color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.labor-editor-actions button { min-width: 130px; }
+
+@media (max-width: 1050px) {
+  .labor-filter-row .filter-field { max-width: none; }
+  .labor-desktop-list .table-wrap { overflow-x: auto; }
+  .labor-desktop-list table { min-width: 1040px; }
+}
+
+@media (max-width: 700px) {
+  body.labor-editor-open { overflow: hidden; }
+  body.labor-editor-open .mobile-bottom-nav {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .labor-list-controls { gap: .8rem; padding: .85rem; }
+  .labor-list-primary { align-items: stretch; }
+  .labor-list-primary .search-field { flex-basis: 100%; }
+  .labor-list-primary .primary { width: 100%; margin: 0; }
+  .labor-filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+  .labor-filter-row .filter-field { min-width: 0; }
+  .labor-filter-row .filter-field select { width: 100%; min-width: 0; }
+  .labor-filter-row > .ghost { min-height: 44px; }
+  .labor-filter-indicator,
+  .labor-result-count { margin: 0; align-self: center; }
+
+  .labor-desktop-list { display: none; }
+  .labor-mobile-list { display: grid; gap: .75rem; margin-top: 1rem; }
+
+  .labor-record-card {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .labor-card-open {
+    display: grid;
+    width: 100%;
+    gap: .7rem;
+    padding: .9rem;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .labor-card-top,
+  .labor-card-billing {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem;
+  }
+
+  .labor-card-context,
+  .labor-card-service { display: grid; gap: .18rem; min-width: 0; }
+  .labor-card-context span,
+  .labor-card-service span,
+  .labor-card-billing small { color: var(--text-muted); font-size: .78rem; overflow-wrap: anywhere; }
+  .labor-card-service strong { overflow-wrap: anywhere; }
+  .labor-card-service span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+  .labor-card-values {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .5rem;
+  }
+
+  .labor-card-values > span {
+    display: grid;
+    gap: .15rem;
+    padding: .55rem;
+    border-radius: var(--radius-sm);
+    background: var(--surface-muted);
+  }
+
+  .labor-card-values small { color: var(--text-muted); font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+  .labor-card-values > span:last-child { text-align: right; }
+
+  .labor-card-actions {
+    padding: .7rem .9rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface-muted);
+  }
+
+  .labor-card-actions .row-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
+  .labor-card-actions button { min-height: 44px; width: 100%; justify-content: center; }
+
+  .labor-editor-backdrop {
+    inset: 0;
+    align-items: stretch;
+    padding: 0;
+    overflow: hidden;
+    background: var(--surface-raised);
+  }
+
+  #laborModal .labor-editor-shell,
+  #clientQuickModal.labor-editor-backdrop .labor-editor-shell {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100dvh;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .labor-editor-header {
+    padding: calc(.75rem + env(safe-area-inset-top, 0px)) .85rem .75rem;
+  }
+
+  .labor-editor-header h2 { font-size: 1.2rem; }
+  .labor-editor-header > div > p:last-child { font-size: .78rem; }
+  .labor-editor-scroll { padding: .75rem .75rem 1rem; }
+  .labor-editor-section { padding: .8rem; border-radius: var(--radius); }
+  .labor-editor-grid { grid-template-columns: 1fr; gap: .65rem; }
+  .labor-service-field,
+  .labor-notes-field { grid-column: auto; }
+  .labor-editor-section-head { grid-template-columns: auto minmax(0, 1fr); }
+  .labor-status-preview { grid-column: 2; justify-self: start; }
+  .labor-billing-summary { align-items: flex-start; flex-direction: column; }
+  .labor-billing-summary .labor-chip { align-self: flex-start; }
+  .labor-editor-actions { padding: .7rem .75rem calc(.7rem + env(safe-area-inset-bottom, 0px)); }
+  .labor-editor-actions button { min-width: 0; flex: 1 1 0; min-height: 46px; }
+}
+
+@media (max-width: 360px) {
+  .labor-filter-row { grid-template-columns: 1fr; }
+  .labor-filter-indicator,
+  .labor-result-count { font-size: .75rem; }
+  .labor-card-values { gap: .35rem; }
+  .labor-card-values > span { padding: .45rem; }
+  .labor-chip { font-size: .68rem; }
+  .labor-editor-header > div > p:last-child { display: none; }
+  .labor-editor-section-head p { font-size: .75rem; }
+}

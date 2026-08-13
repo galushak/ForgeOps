@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-release-candidate-1" in html
-    assert "forgeops-release-candidate-1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
+    assert "forgeops-phase-5-labor" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-release-candidate-1" in html
+    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
     assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-release-candidate-1" in html
-    assert "forgeops-release-candidate-1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
+    assert "forgeops-phase-5-labor" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
 
     for marker in [
@@ -274,6 +274,68 @@ def test_frontend_phase_4_invoice_workflow_characterization():
         "min-height: 100dvh",
     ]:
         assert marker in phase4_css
+
+
+def test_frontend_phase_5_labor_workflow_characterization():
+    static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
+    phase5_css = (static_dir / "phase5-labor.css").read_text(encoding="utf-8")
+    service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
+
+    assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in html
+    assert "/static/js/app.js?v=0.8.12-phase5-labor" in html
+    assert "forgeops-phase-5-labor" in service_worker
+    assert "/static/phase5-labor.css?v=0.8.12-phase5-labor" in service_worker
+    assert "/static/js/app.js?v=0.8.12-phase5-labor" in service_worker
+
+    for marker in [
+        "Search Labor",
+        "laborStatusFilter",
+        "laborClientFilter",
+        "laborProjectFilter",
+        "laborBillingFilter",
+        "laborResultCount",
+        "labor-desktop-list",
+        "labor-mobile-list",
+        "laborCardHtml",
+        "laborStatusChip",
+        "laborBillingChip",
+        "Available / Uninvoiced",
+        "No Labor yet.",
+        "No Labor matches these filters.",
+        "Work Context",
+        "Work Details",
+        "Billing State",
+        "laborEditorShellHtml",
+        "wireLaborEditor",
+        "setLaborEditorPageState(true)",
+        "setLaborEditorPageState(false)",
+        "mobileNavigation.inert = active",
+        "QUICK_CREATE_ACTIONS",
+        "openClientQuickModal(project.client_id, 'labor'",
+        "returnToDashboard: true",
+    ]:
+        assert marker in javascript
+
+    assert "laborEditorShellHtml({editing, settings, formId:'clientLaborForm'" in javascript
+
+    for marker in [
+        ".labor-desktop-list",
+        ".labor-mobile-list",
+        ".labor-record-card",
+        ".labor-chip",
+        ".labor-editor-shell",
+        ".labor-editor-actions",
+        "body.labor-editor-open .mobile-bottom-nav",
+        "visibility: hidden",
+        "pointer-events: none",
+        "min-height: 100dvh",
+        "env(safe-area-inset-bottom",
+        "@media (max-width: 700px)",
+        "@media (max-width: 360px)",
+    ]:
+        assert marker in phase5_css
 
 
 def test_health(client):
