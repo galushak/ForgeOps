@@ -5,8 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models import (
     DropdownKind,
-    InvoiceStatus,
     InvoiceLineItemKind,
+    InvoiceStatus,
     LaborStatus,
     LedgerBusinessType,
     LedgerKind,
@@ -14,6 +14,7 @@ from app.models import (
     QuoteLineItemKind,
     QuoteStatus,
     ReceiptStatus,
+    TermsApplicability,
 )
 
 
@@ -397,6 +398,29 @@ class DropdownOptionUpdate(BaseModel):
 
 
 class DropdownOptionRead(DropdownOptionBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class TermsTemplateBase(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    applies_to: TermsApplicability
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class TermsTemplateCreate(TermsTemplateBase):
+    pass
+
+
+class TermsTemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    applies_to: TermsApplicability | None = None
+    content: str | None = Field(default=None, min_length=1, max_length=2000)
+
+
+class TermsTemplateRead(TermsTemplateBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
     created_at: datetime

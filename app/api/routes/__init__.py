@@ -14,6 +14,7 @@ from app.api.routes import (
     reports,
     settings,
     setup,
+    terms,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "reports",
     "settings",
     "setup",
+    "terms",
 ]

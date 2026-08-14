@@ -31,6 +31,9 @@ from app.schemas.business import (
     QuoteUpdate,
     ReceiptRead,
     ReceiptUpdate,
+    TermsTemplateCreate,
+    TermsTemplateRead,
+    TermsTemplateUpdate,
 )
 from app.schemas.common import LoginRequest, Message, Page, PageMeta, UserProfileRead, UserProfileUpdate
 
@@ -71,6 +74,9 @@ __all__ = [
     "ProjectUpdate",
     "ReceiptRead",
     "ReceiptUpdate",
+    "TermsTemplateCreate",
+    "TermsTemplateRead",
+    "TermsTemplateUpdate",
     "UserProfileRead",
     "UserProfileUpdate",
 ]

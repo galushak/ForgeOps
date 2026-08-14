@@ -52,9 +52,16 @@ class InvoiceStatus(str, Enum):
 
 class InvoiceLineItemKind(str, Enum):
     material = "material"
+    vendor_fee = "vendor_fee"
     credit = "credit"
     payment = "payment"
     adjustment = "adjustment"
+
+
+class TermsApplicability(str, Enum):
+    quote = "quote"
+    invoice = "invoice"
+    both = "both"
 
 
 class DropdownKind(str, Enum):
@@ -256,6 +263,15 @@ class Receipt(SQLModel, table=True):
 class AppSetting(SQLModel, table=True):
     key: str = Field(primary_key=True, max_length=120)
     value: str = Field(default="", max_length=4000)
+    updated_at: datetime
+
+
+class TermsTemplate(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True, max_length=160)
+    applies_to: TermsApplicability = Field(index=True)
+    content: str = Field(max_length=2000)
+    created_at: datetime
     updated_at: datetime
 
 

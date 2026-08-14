@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
@@ -7,7 +7,17 @@ from sqlmodel import Session, func, select
 from app.api.deps import SessionDep, get_current_user
 from app.core.rates import normalize_percentage_rate
 from app.core.security import utc_now
-from app.models import AppSetting, Client, Invoice, InvoiceLineItem, InvoiceLineItemKind, InvoiceStatus, LaborEntry, Project, Quote
+from app.models import (
+    AppSetting,
+    Client,
+    Invoice,
+    InvoiceLineItem,
+    InvoiceLineItemKind,
+    InvoiceStatus,
+    LaborEntry,
+    Project,
+    Quote,
+)
 from app.schemas import InvoiceCreate, InvoiceLineItemRead, InvoiceRead, InvoiceUpdate
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"], dependencies=[Depends(get_current_user)])
@@ -75,14 +85,18 @@ def _sales_tax_rate(session: Session) -> Decimal:
 
 def _recalculate_invoice_totals(session: Session, invoice: Invoice) -> None:
     # Single source of truth: invoice tax is ALWAYS calculated on
-    # labor + additional parts/materials. Payments/credits are separate
+    # labor + additional parts/materials + vendor fees. Payments/credits are separate
     # deductions after the invoice total.
     labor_entries = session.exec(select(LaborEntry).where(LaborEntry.invoice_id == invoice.id)).all()
     labor_total = sum((_money(entry.hours * entry.hourly_rate) for entry in labor_entries), Decimal("0.00"))
 
     line_items = session.exec(select(InvoiceLineItem).where(InvoiceLineItem.invoice_id == invoice.id)).all()
-    materials_total = sum(
-        (_money(item.line_total) for item in line_items if item.kind == InvoiceLineItemKind.material),
+    billable_line_total = sum(
+        (
+            _money(item.line_total)
+            for item in line_items
+            if item.kind in {InvoiceLineItemKind.material, InvoiceLineItemKind.vendor_fee}
+        ),
         Decimal("0.00"),
     )
     credits_total = sum(
@@ -94,7 +108,7 @@ def _recalculate_invoice_totals(session: Session, invoice: Invoice) -> None:
         Decimal("0.00"),
     )
 
-    subtotal = _money(labor_total + materials_total)
+    subtotal = _money(labor_total + billable_line_total)
     tax = _money(subtotal * _sales_tax_rate(session))
     total = _money(subtotal + tax)
 
@@ -126,7 +140,9 @@ def get_next_invoice_number(session: SessionDep) -> dict[str, str]:
 def _invoice_read(session: Session, invoice: Invoice) -> dict:
     data = InvoiceRead.model_validate(invoice).model_dump(mode="json")
     line_items = session.exec(
-        select(InvoiceLineItem).where(InvoiceLineItem.invoice_id == invoice.id).order_by(InvoiceLineItem.sort_order, InvoiceLineItem.id)
+        select(InvoiceLineItem)
+        .where(InvoiceLineItem.invoice_id == invoice.id)
+        .order_by(InvoiceLineItem.sort_order, InvoiceLineItem.id)
     ).all()
     data["line_items"] = [InvoiceLineItemRead.model_validate(item).model_dump(mode="json") for item in line_items]
     return data
@@ -140,15 +156,16 @@ def _replace_invoice_line_items(session: Session, invoice: Invoice, line_items: 
     now = utc_now()
     for index, item in enumerate(line_items, start=1):
         data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        kind = data["kind"]
         session.add(
             InvoiceLineItem(
                 invoice_id=invoice.id,
-                kind=data["kind"],
+                kind=kind,
                 description=data["description"],
                 quantity=data.get("quantity"),
                 unit_price=data.get("unit_price"),
                 line_total=data.get("line_total"),
-                taxable=data.get("taxable", False),
+                taxable=True if kind == InvoiceLineItemKind.vendor_fee else data.get("taxable", False),
                 sort_order=data.get("sort_order") or index * 10,
                 created_at=now,
                 updated_at=now,

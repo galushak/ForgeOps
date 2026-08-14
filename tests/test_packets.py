@@ -24,9 +24,9 @@ def test_packet_frontend_actions_print_reuse_and_pwa_characterization():
     packet_css = (STATIC_DIR / "forgeops-packets.css").read_text(encoding="utf-8")
     service_worker = (STATIC_DIR / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
     assert "/static/forgeops-packets.css?v=0.8.12-print-packets" in html
-    assert "forgeops-v2-print-packets-v2" in service_worker
+    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
     assert "/static/js/packet-renderers.js?v=0.8.12-print-packets" in service_worker
     assert "./packet-renderers.js?v=0.8.12-print-packets" in javascript
 
@@ -291,3 +291,13 @@ def test_pure_packet_renderer_privacy_inclusion_and_isolation():
     result = subprocess.run([node, str(script)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert "privacy, inclusion, and isolation assertions passed" in result.stdout
+
+
+def test_pure_document_math_vendor_fee_examples():
+    node = os.environ.get("NODE_BINARY") or shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is unavailable for the pure document math regression")
+    script = Path(__file__).with_name("document_math_test.mjs")
+    result = subprocess.run([node, str(script)], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert "quote and invoice vendor fee calculations passed" in result.stdout

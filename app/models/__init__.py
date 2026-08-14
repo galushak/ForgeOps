@@ -24,6 +24,8 @@ from app.models.entities import (
     ReceiptStatus,
     RestoreRecord,
     SessionToken,
+    TermsApplicability,
+    TermsTemplate,
     User,
 )
 
@@ -53,5 +55,7 @@ __all__ = [
     "ReceiptStatus",
     "RestoreRecord",
     "SessionToken",
+    "TermsApplicability",
+    "TermsTemplate",
     "User",
 ]

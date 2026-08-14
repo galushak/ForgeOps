@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
-    assert "forgeops-v2-print-packets-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -98,9 +98,9 @@ def test_frontend_phase_3_quote_workflow_characterization():
     phase3_css = (static_dir / "phase3-quotes.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in html
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
-    assert "/static/phase3-quotes.css?v=0.8.12-phase3-quotes-v2" in service_worker
+    assert "/static/phase3-quotes.css?v=0.8.12-vendor-fees-terms" in html
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "/static/phase3-quotes.css?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
         "quote-list-controls",
@@ -126,7 +126,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     ]
     required_line_section_order = [
         "Equipment & Materials",
-        "Shipping, Tariff & Markup",
+        "Vendor Fees & Markup",
         "Estimated Labor",
         "Quote Summary",
     ]
@@ -147,8 +147,8 @@ def test_frontend_phase_3_quote_workflow_characterization():
         'name="quote_number"',
         'id="addEquipmentLine"',
         'id="addLaborLine"',
-        'id="quoteShippingInput"',
-        'id="quoteTariffInput"',
+        'id="quoteVendorFeeRows"',
+        'id="addQuoteVendorFee"',
         'id="quoteTaxDisplay"',
         'id="quoteMarkupPercentInput"',
         'id="quoteGrandTotalDisplay"',
@@ -178,10 +178,10 @@ def test_frontend_phase_3_quote_workflow_characterization():
     ]:
         assert marker in phase3_css
 
-    assert "const tax = (equipmentSubtotal + shipping + tariff) * taxRate;" in javascript
-    assert "const markup = (equipmentSubtotal + shipping + tariff + tax) * (markupPercent / 100);" in javascript
-    assert "const subtotal = equipmentSubtotal + shipping + tariff + markup + laborTotal;" in javascript
-    assert "Project Coordination & Logistics', description:" in javascript
+    assert "calculateQuoteDraftTotals(draftItems, taxRate, markupPercent)" in javascript
+    assert "item.taxable !== false" in (static_dir / "js" / "document-math.js").read_text(encoding="utf-8")
+    assert "base.equipmentSubtotal + base.vendorFeesTotal + base.tax" in (static_dir / "js" / "document-math.js").read_text(encoding="utf-8")
+    assert "name:QUOTE_MARKUP_NAME, description:" in javascript
     assert "taxable:false" in javascript
 
 
@@ -192,10 +192,10 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     phase4_css = (static_dir / "phase4-invoices.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in html
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
-    assert "forgeops-v2-print-packets-v2" in service_worker
-    assert "/static/phase4-invoices.css?v=0.8.12-phase4-invoices-mobile-fix" in service_worker
+    assert "/static/phase4-invoices.css?v=0.8.12-vendor-fees-terms" in html
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/phase4-invoices.css?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
         "invoiceStatusFilter",
@@ -208,6 +208,9 @@ def test_frontend_phase_4_invoice_workflow_characterization():
         "Available Uninvoiced Labor",
         "statusLabel(entry.status)",
         "invoice-totals-summary",
+        "invoiceVendorFeeRows",
+        "addInvoiceVendorFee",
+        "invoiceVendorFeesTotalDisplay",
         "invoice-terms-notes-grid",
         "data-invoice-sticky-balance",
     ]:
@@ -220,7 +223,7 @@ def test_frontend_phase_4_invoice_workflow_characterization():
         "Invoice Details",
         "Billing Context",
         "Available Uninvoiced Labor",
-        "Additional Materials",
+        "Additional Parts & Materials",
         "Credits / Payments Applied",
         "Invoice Totals",
         "Terms and Notes",
@@ -233,6 +236,7 @@ def test_frontend_phase_4_invoice_workflow_characterization():
         javascript.index("function wireInvoiceLineEditor") : javascript.index("function recalcInvoiceEditor")
     ]
     assert "addMaterial.onclick" in line_wiring
+    assert "addVendorFee.onclick" in line_wiring
     assert "addCredit.onclick" in line_wiring
     assert "{ once: true }" not in line_wiring
 
@@ -284,10 +288,10 @@ def test_frontend_phase_5_labor_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in html
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
-    assert "forgeops-v2-print-packets-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in service_worker
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
         "Search Labor",
@@ -346,10 +350,10 @@ def test_frontend_phase_6_ledger_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in html
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
-    assert "forgeops-v2-print-packets-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in service_worker
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
         "Search Ledger",
@@ -415,10 +419,10 @@ def test_frontend_phase_7_reports_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in html
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
-    assert "forgeops-v2-print-packets-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in service_worker
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
         "function reportMetricHtml",
@@ -471,11 +475,11 @@ def test_frontend_phase_8_settings_backup_workflow_characterization():
     final_css = (static_dir / "forgeopsv2-final.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in html
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in html
-    assert "forgeops-v2-print-packets-v2" in service_worker
-    assert "/static/phase8-settings.css?v=0.8.12-phase8-settings" in service_worker
-    assert "/static/js/app.js?v=0.8.12-print-packets-v2" in service_worker
+    assert "/static/phase8-settings.css?v=0.8.12-vendor-fees-terms" in html
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/phase8-settings.css?v=0.8.12-vendor-fees-terms" in service_worker
+    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in html
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in service_worker
 
@@ -507,6 +511,9 @@ def test_frontend_phase_8_settings_backup_workflow_characterization():
         "Business Information",
         "Financial Settings",
         "Document Defaults",
+        "Terms Library",
+        "Saved terms are copied",
+        "/api/terms",
         "Income Tax Reserve Rate",
         "Enter 7 or 0.07 for 7%",
         "Enter 30 or 0.30 for 30%",
@@ -729,6 +736,134 @@ def test_settings_and_backup_validate_restore(authed):
     )
     assert restored.status_code == 200
     assert restored.json()["pre_restore_backup"].startswith("fst-backup-")
+
+
+def test_vendor_fees_and_terms_library_are_calculated_filtered_and_copied(authed):
+    assert authed.put("/api/admin/settings", json={"sales_tax_rate": "7"}).status_code == 200
+    client_id = authed.post("/api/clients", json={"name": "Vendor Fee Client"}).json()["id"]
+    project_id = authed.post(
+        "/api/projects", json={"client_id": client_id, "name": "Vendor Fee Project"}
+    ).json()["id"]
+
+    quote_template = authed.post(
+        "/api/terms",
+        json={"name": "Equipment Deposit", "applies_to": "quote", "content": "Equipment is due before ordering."},
+    )
+    invoice_template = authed.post(
+        "/api/terms",
+        json={"name": "Due on Receipt", "applies_to": "invoice", "content": "Payment is due upon receipt."},
+    )
+    both_template = authed.post(
+        "/api/terms",
+        json={"name": "Standard Warranty", "applies_to": "both", "content": "Standard warranty terms apply."},
+    )
+    assert quote_template.status_code == invoice_template.status_code == both_template.status_code == 201
+    assert authed.post(
+        "/api/terms",
+        json={"name": " equipment deposit ", "applies_to": "both", "content": "Duplicate"},
+    ).status_code == 400
+    assert authed.post(
+        "/api/terms", json={"name": " ", "applies_to": "both", "content": "Invalid"}
+    ).status_code == 422
+    assert authed.patch("/api/terms/999999", json={"content": "Missing"}).status_code == 404
+    assert authed.delete("/api/terms/999999").status_code == 404
+    assert authed.patch(
+        f"/api/terms/{invoice_template.json()['id']}", json={"name": "standard warranty"}
+    ).status_code == 400
+
+    quote_choices = authed.get("/api/terms", params={"applies_to": "quote"}).json()["items"]
+    invoice_choices = authed.get("/api/terms", params={"applies_to": "invoice"}).json()["items"]
+    assert {item["name"] for item in quote_choices} == {"Equipment Deposit", "Standard Warranty"}
+    assert {item["name"] for item in invoice_choices} == {"Due on Receipt", "Standard Warranty"}
+
+    copied_terms = quote_template.json()["content"]
+    quote_id = authed.post(
+        "/api/quotes",
+        json={
+            "quote_number": "FS-QUOTE-VENDOR-FEES",
+            "client_id": client_id,
+            "project_id": project_id,
+            "title": "Vendor Fees Quote",
+            "quote_date": "2026-08-14",
+            "terms": copied_terms,
+        },
+    ).json()["id"]
+    lines = authed.put(
+        f"/api/quotes/{quote_id}/line-items",
+        json={
+            "items": [
+                {"quote_id": quote_id, "kind": "equipment", "name": "Taxable hardware", "quantity": "1.00", "unit_price": "100.00", "line_total": "100.00", "taxable": True},
+                {"quote_id": quote_id, "kind": "equipment", "name": "Non-taxable equipment", "quantity": "1.00", "unit_price": "50.00", "line_total": "50.00", "taxable": False},
+                {"quote_id": quote_id, "kind": "fee", "name": "Delivery", "quantity": "1.00", "unit_price": "10.00", "line_total": "10.00", "taxable": False},
+                {"quote_id": quote_id, "kind": "fee", "name": "Project Coordination & Logistics", "quantity": "1.00", "unit_price": "16.77", "line_total": "16.77", "taxable": True},
+                {"quote_id": quote_id, "kind": "labor", "name": "Installation", "quantity": "2.00", "unit_price": "100.00", "line_total": "200.00", "taxable": False},
+            ]
+        },
+    )
+    assert lines.status_code == 200
+    line_items = lines.json()["items"]
+    assert next(item for item in line_items if item["name"] == "Delivery")["taxable"] is True
+    assert next(item for item in line_items if item["name"] == "Project Coordination & Logistics")["taxable"] is False
+    quote = next(item for item in authed.get("/api/quotes", params={"page_size": 100}).json()["items"] if item["id"] == quote_id)
+    assert quote["subtotal"] == "376.77"
+    assert quote["tax_amount"] == "7.70"
+    assert quote["total_amount"] == "384.47"
+
+    labor_id = authed.post(
+        "/api/labor",
+        json={"work_date": "2026-08-14", "client_id": client_id, "project_id": project_id, "status": "completed", "service_type": "Install", "hours": "1.00", "hourly_rate": "100.00"},
+    ).json()["id"]
+    invoice = authed.post(
+        "/api/invoices",
+        json={
+            "invoice_number": "FS-INV-VENDOR-FEES",
+            "client_id": client_id,
+            "project_id": project_id,
+            "quote_id": quote_id,
+            "status": "sent",
+            "title": "Vendor Fees Invoice",
+            "invoice_date": "2026-08-14",
+            "terms": invoice_template.json()["content"],
+            "labor_entry_ids": [labor_id],
+            "line_items": [
+                {"kind": "material", "description": "Cable", "quantity": "1.00", "unit_price": "50.00", "line_total": "50.00", "taxable": True},
+                {"kind": "vendor_fee", "description": "Delivery", "quantity": "1.00", "unit_price": "10.00", "line_total": "10.00", "taxable": False},
+            ],
+        },
+    )
+    assert invoice.status_code == 201
+    assert invoice.json()["status"] == "sent"
+    assert invoice.json()["subtotal"] == "160.00"
+    assert invoice.json()["tax_amount"] == "11.20"
+    assert invoice.json()["total_amount"] == "171.20"
+    assert invoice.json()["balance_due"] == "171.20"
+    assert next(item for item in invoice.json()["line_items"] if item["kind"] == "vendor_fee")["taxable"] is True
+
+    assert authed.patch(
+        f"/api/terms/{quote_template.json()['id']}", json={"content": "Changed future template text."}
+    ).status_code == 200
+    assert authed.delete(f"/api/terms/{quote_template.json()['id']}").status_code == 200
+    unchanged_quote = next(item for item in authed.get("/api/quotes", params={"page_size": 100}).json()["items"] if item["id"] == quote_id)
+    assert unchanged_quote["terms"] == copied_terms
+
+
+def test_terms_library_survives_backup_restore_without_mutating_document_terms(authed):
+    created = authed.post(
+        "/api/terms",
+        json={"name": "Backup Terms", "applies_to": "both", "content": "Terms library survives restore."},
+    )
+    assert created.status_code == 201
+    backup = authed.get("/api/admin/backups/download")
+    assert backup.status_code == 200
+    assert authed.patch(f"/api/terms/{created.json()['id']}", json={"content": "Mutated after backup."}).status_code == 200
+    restored = authed.post(
+        "/api/admin/backups/restore", files={"file": ("terms-backup.zip", backup.content, "application/zip")}
+    )
+    assert restored.status_code == 200
+    templates = authed.get("/api/terms").json()["items"]
+    assert [(item["name"], item["content"]) for item in templates] == [
+        ("Backup Terms", "Terms library survives restore.")
+    ]
 
 
 def test_full_backup_restore_preserves_business_graph_settings_and_startup(authed):

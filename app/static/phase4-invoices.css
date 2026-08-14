@@ -336,10 +336,17 @@
 
 .invoice-material-head,
 .invoice-material-row { display: grid; grid-template-columns: minmax(220px, 1fr) 95px 120px 120px 88px; gap: .45rem; align-items: end; }
+.invoice-vendor-fee-head,
+.invoice-vendor-fee-row { display: grid; grid-template-columns: minmax(220px, 1fr) 145px 88px; gap: .45rem; align-items: end; }
 .invoice-credit-head,
 .invoice-credit-row { display: grid; grid-template-columns: 145px minmax(240px, 1fr) 145px 88px; gap: .45rem; align-items: end; }
 .invoice-material-row,
+.invoice-vendor-fee-row,
 .invoice-credit-row { margin-top: .45rem; padding: .6rem; background: var(--surface-muted); border: 1px solid var(--border); border-radius: 10px; }
+.invoice-materials-subsection h4,
+.invoice-vendor-fees-subsection h4 { margin: 0 0 .35rem; color: var(--text); font-size: .86rem; }
+.invoice-vendor-fees-subsection { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.invoice-vendor-fee-head { padding-inline: .6rem; color: var(--text-muted); font-size: .68rem; font-weight: 850; letter-spacing: .03em; text-transform: uppercase; }
 .invoice-line-field > span { color: var(--text-muted); font-size: .68rem; letter-spacing: .03em; text-transform: uppercase; }
 .invoice-line-total input { text-align: right; font-weight: 900; }
 .invoice-remove-line { min-height: 42px; }
@@ -372,6 +379,7 @@
 .invoice-terms-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
 .invoice-terms-notes-grid label > span { min-height: 2.4em; color: var(--text-muted); font-size: .72rem; font-weight: 600; line-height: 1.3; }
 .invoice-terms-notes-grid textarea { resize: vertical; }
+.invoice-terms-field { min-width: 0; display: grid; align-content: start; gap: .75rem; }
 .invoice-print-note { display: flex; align-items: center; gap: .65rem; margin-top: .75rem; padding: .65rem .75rem; color: var(--text-muted); background: var(--surface-muted); border: 1px solid var(--border); border-radius: 10px; font-size: .78rem; }
 .invoice-print-note strong { color: var(--text); white-space: nowrap; }
 
@@ -457,8 +465,10 @@
   .invoice-terms-notes-grid { grid-template-columns: 1fr; }
   .invoice-details-grid .invoice-title-field { grid-column: auto; }
   .invoice-material-head,
+  .invoice-vendor-fee-head,
   .invoice-credit-head { display: none; }
   .invoice-material-row,
+  .invoice-vendor-fee-row,
   .invoice-credit-row { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
   .invoice-line-description { grid-column: 1 / -1; }
   .invoice-remove-line { grid-column: 1 / -1; }
@@ -504,6 +514,7 @@
   .invoice-card-actions { padding: .6rem .72rem; }
   .invoice-card-actions .mini { min-height: 42px; font-size: .76rem; }
   .invoice-material-row,
+  .invoice-vendor-fee-row,
   .invoice-credit-row { grid-template-columns: 1fr; }
   .invoice-credit-row .invoice-line-description,
   .invoice-credit-row .invoice-remove-line { grid-column: auto; }

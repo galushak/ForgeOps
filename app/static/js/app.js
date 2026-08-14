@@ -1,6 +1,7 @@
 import { clientAdminPacketHtml, projectAdminGroupHtml, projectClientPacketHtml } from './packet-renderers.js?v=0.8.12-print-packets';
+import { calculateInvoiceTotals, calculateQuoteDraftTotals, calculateQuoteTotals, isQuoteMarkupItem, QUOTE_MARKUP_NAME, quoteVendorFeeItems } from './document-math.js?v=0.8.12-vendor-fees-terms';
 
-const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, salesTaxPeriods: [], editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
+const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], termsTemplates: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, salesTaxPeriods: [], editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
@@ -33,6 +34,35 @@ function invoiceTermsValue(recordTerms, settingTerms) {
   if (current) return current;
   const setting = normalizedText(settingTerms);
   return setting || DEFAULT_INVOICE_TERMS;
+}
+function termsTemplateOptions(templates=[], appliesTo='quote') {
+  return templates
+    .filter(template => template.applies_to === appliesTo || template.applies_to === 'both')
+    .map(template => `<option value="${Number(template.id)}">${escapeHtml(template.name)}</option>`)
+    .join('');
+}
+function savedTermsControlHtml({templates=[], appliesTo='quote', formId=''}) {
+  const selectId = `${formId}SavedTerms`;
+  return `<div class="saved-terms-control">
+    <label for="${selectId}">Saved Terms</label>
+    <div><select id="${selectId}" data-saved-terms-select><option value="">Select saved terms...</option>${termsTemplateOptions(templates, appliesTo)}</select><button class="ghost" type="button" data-apply-saved-terms disabled>Apply</button></div>
+    <small>Apply copies this text into the document. You can edit it before saving.</small>
+  </div>`;
+}
+function wireTermsTemplateApply(container, formId, templates=[]) {
+  const form = container.querySelector(`#${formId}`);
+  const select = form?.querySelector('[data-saved-terms-select]');
+  const button = form?.querySelector('[data-apply-saved-terms]');
+  const textarea = form?.querySelector('[name="terms"]');
+  if (!select || !button || !textarea) return;
+  select.addEventListener('change', () => { button.disabled = !select.value; });
+  button.addEventListener('click', () => {
+    const template = templates.find(item => Number(item.id) === Number(select.value));
+    if (!template) return;
+    textarea.value = template.content;
+    textarea.dispatchEvent(new Event('input', {bubbles:true}));
+    textarea.focus();
+  });
 }
 
 
@@ -290,14 +320,19 @@ function normalizeKind(kind) {
   if (kind === 'fee') return 'fee';
   return 'equipment';
 }
-function feeByName(items, needle) {
-  return items.find(i => normalizeKind(i.kind) === 'fee' && String(i.name || '').toLowerCase().includes(needle.toLowerCase()));
-}
 function equipmentRowsFromItems(items) {
   return (items || []).filter(i => normalizeKind(i.kind) === 'equipment');
 }
 function laborRowsFromItems(items) {
   return (items || []).filter(i => normalizeKind(i.kind) === 'labor');
+}
+function quoteVendorFeeRowHtml(item={}) {
+  const amount = item.line_total ?? item.unit_price ?? '0.00';
+  return `<article class="quote-vendor-fee-row quote-line-card" data-kind="fee">
+    <label class="quote-line-field quote-line-name"><span>Fee name</span><input name="vendor_fee_name" required maxlength="180" value="${escapeHtml(item.name || '')}" placeholder="Shipping, delivery, permit fee..."></label>
+    <label class="quote-line-field"><span>Amount</span><input name="vendor_fee_amount" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(amount)}"></label>
+    <button class="mini danger-mini quote-remove-fee" type="button" aria-label="Remove vendor fee">Remove</button>
+  </article>`;
 }
 function quoteEquipmentRowHtml(item={}) {
   const qty = item.quantity ?? '1.00';
@@ -332,9 +367,8 @@ function quoteLineEditorHtml(items=[], settings={}) {
   const laborRate = settings.default_labor_rate || '100.00';
   const equipment = equipmentRowsFromItems(items);
   const labor = laborRowsFromItems(items);
-  const shipping = feeByName(items, 'shipping')?.line_total || '0.00';
-  const tariff = feeByName(items, 'tariff')?.line_total || '0.00';
-  const markup = feeByName(items, 'coordination')?.line_total || '0.00';
+  const vendorFees = quoteVendorFeeItems(items);
+  const markup = items.find(isQuoteMarkupItem)?.line_total || '0.00';
   return `<div class="quote-builder quote-editor-sections full" id="quoteLineEditor" data-markup-percent="${markupPercent}" data-sales-tax-rate="${salesTaxRate}">
     <section class="quote-sheet-section quote-editor-section" aria-labelledby="quoteEquipmentHeading">
       <div class="quote-editor-section-head"><span>2</span><div><h3 id="quoteEquipmentHeading">Equipment & Materials</h3><p>Add the hardware, materials, and quantities included in this estimate.</p></div></div>
@@ -344,10 +378,13 @@ function quoteLineEditorHtml(items=[], settings={}) {
     </section>
 
     <section class="quote-sheet-section quote-editor-section quote-fees-section" aria-labelledby="quoteFeesHeading">
-      <div class="quote-editor-section-head"><span>3</span><div><h3 id="quoteFeesHeading">Shipping, Tariff & Markup</h3><p>Use the optional cost fields that apply to this quote.</p></div></div>
-      <div class="quote-fee-grid">
-        <label>Shipping & Freight<input id="quoteShippingInput" type="number" min="0" step="0.01" value="${escapeHtml(shipping)}"></label>
-        <label>Tariff Surcharge<input id="quoteTariffInput" type="number" min="0" step="0.01" value="${escapeHtml(tariff)}"></label>
+      <div class="quote-editor-section-head"><span>3</span><div><h3 id="quoteFeesHeading">Vendor Fees & Markup</h3><p>Add taxable vendor charges separately from the calculated coordination markup.</p></div></div>
+      <div class="quote-vendor-fees">
+        <div class="quote-vendor-fee-head"><span>Fee name</span><span>Amount</span><span></span></div>
+        <div id="quoteVendorFeeRows">${vendorFees.map(quoteVendorFeeRowHtml).join('')}</div>
+        <button class="mini quote-add-line" type="button" id="addQuoteVendorFee">+ Add Vendor Fee</button>
+      </div>
+      <div class="quote-fee-grid quote-markup-grid">
         <label>Markup / Project Coordination %<input id="quoteMarkupPercentInput" type="number" min="0" step="0.01" value="${escapeHtml(markupPercent)}"></label>
         <label>Project Coordination & Logistics<input id="quoteMarkupDisplay" readonly aria-readonly="true" value="${escapeHtml(Number(markup || 0).toFixed(2))}"></label>
       </div>
@@ -364,8 +401,7 @@ function quoteLineEditorHtml(items=[], settings={}) {
       <div class="quote-editor-section-head"><span>5</span><div><h3 id="quoteSummaryHeading">Quote Summary</h3><p>Live totals from the existing Quote calculation.</p></div></div>
       <div class="quote-summary-grid" aria-live="polite">
         <div><span>Equipment subtotal</span><input id="equipmentSubtotalDisplay" aria-label="Equipment subtotal" readonly aria-readonly="true" value="$0.00"></div>
-        <div data-quote-summary-row="shipping"><span>Shipping & Freight</span><output data-quote-summary="shipping">$0.00</output></div>
-        <div data-quote-summary-row="tariff"><span>Tariff Surcharge</span><output data-quote-summary="tariff">$0.00</output></div>
+        <div data-quote-summary-row="vendor-fees"><span>Vendor fees</span><output data-quote-summary="vendor-fees">$0.00</output></div>
         <div><span>Sales Tax</span><input id="quoteTaxDisplay" aria-label="Sales Tax" readonly aria-readonly="true" value="$0.00"></div>
         <div><span>Project Coordination & Logistics</span><output data-quote-summary="markup">$0.00</output></div>
         <div class="quote-summary-equipment"><span>Total Equipment Cost</span><input id="quoteEquipmentTotalDisplay" aria-label="Total Equipment Cost" readonly aria-readonly="true" value="$0.00"></div>
@@ -395,27 +431,14 @@ function collectQuoteLineItems(container, quoteId=0) {
     };
   }).filter(item => item.name || item.line_total > 0);
 
-  const shipping = numberValue(editor.querySelector('#quoteShippingInput')?.value, 0);
-  const tariff = numberValue(editor.querySelector('#quoteTariffInput')?.value, 0);
+  [...editor.querySelectorAll('.quote-vendor-fee-row')].forEach((row, index) => {
+    const name = row.querySelector('[name="vendor_fee_name"]')?.value.trim() || '';
+    const amount = numberValue(row.querySelector('[name="vendor_fee_amount"]')?.value, 0);
+    if (name || amount > 0) items.push({quote_id:Number(quoteId || 0), kind:'fee', name, description:'Vendor fee included with quoted equipment/materials.', quantity:'1.00', unit_price:decimalString(amount), line_total:decimalString(amount), taxable:true, sort_order:500 + ((index + 1) * 10)});
+  });
   const markup = numberValue(editor.querySelector('#quoteMarkupDisplay')?.value, 0);
-  const baseOrder = items.length * 10;
-  if (shipping > 0) items.push({quote_id:Number(quoteId || 0), kind:'fee', name:'Shipping & Freight', description:'Shipping and freight for quoted equipment/materials.', quantity:'1.00', unit_price:decimalString(shipping), line_total:decimalString(shipping), taxable:true, sort_order:baseOrder + 10});
-  if (tariff > 0) items.push({quote_id:Number(quoteId || 0), kind:'fee', name:'Tariff Surcharge', description:'Tariff or surcharge applied to quoted equipment/materials.', quantity:'1.00', unit_price:decimalString(tariff), line_total:decimalString(tariff), taxable:true, sort_order:baseOrder + 20});
-  if (markup > 0) items.push({quote_id:Number(quoteId || 0), kind:'fee', name:'Project Coordination & Logistics', description:'Procurement, coordination, logistics, and handling.', quantity:'1.00', unit_price:decimalString(markup), line_total:decimalString(markup), taxable:false, sort_order:baseOrder + 30});
+  if (markup > 0) items.push({quote_id:Number(quoteId || 0), kind:'fee', name:QUOTE_MARKUP_NAME, description:'Procurement, coordination, logistics, and handling.', quantity:'1.00', unit_price:decimalString(markup), line_total:decimalString(markup), taxable:false, sort_order:900});
   return items;
-}
-function calculateQuoteTotals(items, salesTaxRate=0.07) {
-  const equipmentSubtotal = items.filter(i => normalizeKind(i.kind) === 'equipment').reduce((sum, item) => sum + numberValue(item.line_total), 0);
-  const laborTotal = items.filter(i => normalizeKind(i.kind) === 'labor').reduce((sum, item) => sum + numberValue(item.line_total), 0);
-  const shipping = feeByName(items, 'shipping') ? numberValue(feeByName(items, 'shipping').line_total) : 0;
-  const tariff = feeByName(items, 'tariff') ? numberValue(feeByName(items, 'tariff').line_total) : 0;
-  const taxableBase = equipmentSubtotal + shipping + tariff;
-  const tax = taxableBase * Number(salesTaxRate || 0);
-  const existingMarkup = feeByName(items, 'coordination') ? numberValue(feeByName(items, 'coordination').line_total) : 0;
-  const markup = existingMarkup;
-  const subtotal = equipmentSubtotal + shipping + tariff + markup + laborTotal;
-  const equipmentTotal = equipmentSubtotal + shipping + tariff + tax + markup;
-  return { subtotal, tax, total: subtotal + tax, equipmentSubtotal, shipping, tariff, markup, equipmentTotal, laborTotal, taxableBase };
 }
 function recalcQuoteEditor(container) {
   const editor = container.querySelector('#quoteLineEditor');
@@ -426,15 +449,12 @@ function recalcQuoteEditor(container) {
     const totalInput = row.querySelector('[name="line_total"]');
     if (totalInput) totalInput.value = (qty * price).toFixed(2);
   });
-  const equipmentSubtotal = [...editor.querySelectorAll('.quote-line-row[data-kind="equipment"]')].reduce((sum, row) => sum + numberValue(row.querySelector('[name="line_total"]')?.value, 0), 0);
-  const shipping = numberValue(editor.querySelector('#quoteShippingInput')?.value, 0);
-  const tariff = numberValue(editor.querySelector('#quoteTariffInput')?.value, 0);
   const taxRate = Number(editor.dataset.salesTaxRate || 0);
-  const tax = (equipmentSubtotal + shipping + tariff) * taxRate;
   const markupPercent = numberValue(editor.querySelector('#quoteMarkupPercentInput')?.value, numberValue(editor.dataset.markupPercent, 0));
-  const markup = (equipmentSubtotal + shipping + tariff + tax) * (markupPercent / 100);
+  const draftItems = collectQuoteLineItems(editor).filter(item => !isQuoteMarkupItem(item));
+  const draftTotals = calculateQuoteDraftTotals(draftItems, taxRate, markupPercent);
   const markupInput = editor.querySelector('#quoteMarkupDisplay');
-  if (markupInput) markupInput.value = markup.toFixed(2);
+  if (markupInput) markupInput.value = draftTotals.markup.toFixed(2);
   const items = collectQuoteLineItems(editor);
   const totals = calculateQuoteTotals(items, taxRate);
   const setTextInput = (selector, value, asMoney=true) => { const el = editor.querySelector(selector); if (el) el.value = asMoney ? money(value) : Number(value).toFixed(2); };
@@ -443,7 +463,7 @@ function recalcQuoteEditor(container) {
   setTextInput('#quoteEquipmentTotalDisplay', totals.equipmentTotal);
   setTextInput('#quoteLaborTotalDisplay', totals.laborTotal);
   setTextInput('#quoteGrandTotalDisplay', totals.total);
-  const summaryValues = { shipping: totals.shipping, tariff: totals.tariff, markup: totals.markup };
+  const summaryValues = { 'vendor-fees': totals.vendorFeesTotal, markup: totals.markup };
   Object.entries(summaryValues).forEach(([name, value]) => {
     const output = editor.querySelector(`[data-quote-summary="${name}"]`);
     if (output) output.textContent = money(value);
@@ -464,6 +484,7 @@ function wireQuoteLineEditor(container) {
   if (!editor) return;
   const equipmentRows = editor.querySelector('#quoteEquipmentRows');
   const laborRows = editor.querySelector('#quoteLaborRows');
+  const vendorFeeRows = editor.querySelector('#quoteVendorFeeRows');
   const addEquipment = () => {
     equipmentRows.insertAdjacentHTML('beforeend', quoteEquipmentRowHtml({kind:'equipment', quantity:'1.00', unit_price:'0.00', line_total:'0.00', taxable:true}));
     wireQuoteLineEditor(container);
@@ -475,16 +496,24 @@ function wireQuoteLineEditor(container) {
     wireQuoteLineEditor(container);
     laborRows.lastElementChild?.querySelector('[name="name"]')?.focus();
   };
+  const addVendorFee = () => {
+    vendorFeeRows.insertAdjacentHTML('beforeend', quoteVendorFeeRowHtml({line_total:'0.00'}));
+    wireQuoteLineEditor(container);
+    vendorFeeRows.lastElementChild?.querySelector('[name="vendor_fee_name"]')?.focus();
+  };
   const equipmentButton = editor.querySelector('#addEquipmentLine');
   const laborButton = editor.querySelector('#addLaborLine');
+  const vendorFeeButton = editor.querySelector('#addQuoteVendorFee');
   if (equipmentButton) equipmentButton.onclick = addEquipment;
   if (laborButton) laborButton.onclick = addLabor;
+  if (vendorFeeButton) vendorFeeButton.onclick = addVendorFee;
   editor.querySelectorAll('input,select,textarea').forEach(el => el.oninput = () => recalcQuoteEditor(container));
   editor.querySelectorAll('.quote-remove-line').forEach(btn => btn.onclick = () => { btn.closest('.quote-line-row')?.remove(); recalcQuoteEditor(container); });
+  editor.querySelectorAll('.quote-remove-fee').forEach(btn => btn.onclick = () => { btn.closest('.quote-vendor-fee-row')?.remove(); recalcQuoteEditor(container); });
   recalcQuoteEditor(container);
 }
 
-function quoteEditorFormHtml({editing=null, generatedQuoteNumber='', quoteNumberAttrs='', settings={}, existingItems=[], formId='quoteForm', clientSelectId='quoteClient', projectSelectId='quoteProject', scopedClientId=null, scopedProjectId='', clientLabel='', closeButtonId='', cancelButtonId='', scoped=false}) {
+function quoteEditorFormHtml({editing=null, generatedQuoteNumber='', quoteNumberAttrs='', settings={}, existingItems=[], termsTemplates=[], formId='quoteForm', clientSelectId='quoteClient', projectSelectId='quoteProject', scopedClientId=null, scopedProjectId='', clientLabel='', closeButtonId='', cancelButtonId='', scoped=false}) {
   const isEdit = Boolean(editing);
   const titleId = `${formId}Title`;
   const closeId = closeButtonId ? ` id="${closeButtonId}"` : '';
@@ -514,6 +543,7 @@ function quoteEditorFormHtml({editing=null, generatedQuoteNumber='', quoteNumber
       ${quoteLineEditorHtml(existingItems, settings)}
       <section class="quote-sheet-section quote-editor-section quote-terms-section full" aria-labelledby="${formId}TermsHeading">
         <div class="quote-editor-section-head"><span>6</span><div><h3 id="${formId}TermsHeading">Payment Terms & Conditions</h3><p>Client-facing terms included with the quote.</p></div></div>
+        ${savedTermsControlHtml({templates:termsTemplates, appliesTo:'quote', formId})}
         <label>Terms<textarea name="terms" rows="7">${escapeHtml(quoteTermsValue(editing?.terms, settings.default_quote_terms))}</textarea></label>
       </section>
       <section class="quote-sheet-section quote-editor-section quote-notes-section full" aria-labelledby="${formId}NotesHeading">
@@ -577,7 +607,7 @@ function invoiceCreditRowHtml(item={}) {
   </article>`;
 }
 
-function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invoiceNumberAttrs='', scopedClientId='', presetClientId='', scopedProjectId='', scopedQuoteId='', clientLabel='', settings={}, formId='invoiceForm', clientSelectId='invoiceClient', projectSelectId='invoiceProject', quoteSelectId='invoiceQuote'}) {
+function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invoiceNumberAttrs='', scopedClientId='', presetClientId='', scopedProjectId='', scopedQuoteId='', clientLabel='', settings={}, termsTemplates=[], formId='invoiceForm', clientSelectId='invoiceClient', projectSelectId='invoiceProject', quoteSelectId='invoiceQuote'}) {
   const companyName = settings.company_name || 'Forged Systems LLC';
   const salesTaxRate = percentSetting(settings.sales_tax_rate ?? '0.07', 0.07);
   const selectedClientId = scopedClientId || editing?.client_id || presetClientId || '';
@@ -588,6 +618,7 @@ function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invo
     : `<label>Client<select name="client_id" id="${clientSelectId}" required>${clientOptions(selectedClientId)}</select></label>`;
   const terms = invoiceTermsValue(editing?.terms, settings.default_invoice_terms);
   const materials = invoiceLineItemsFor(editing, 'material');
+  const vendorFees = invoiceLineItemsFor(editing, 'vendor_fee');
   const credits = (editing?.line_items || []).filter(item => ['credit','payment','adjustment'].includes(String(item.kind)));
   return `<form id="${formId}" class="invoice-internal-sheet invoice-editor-form full" data-sales-tax-rate="${salesTaxRate}">
     <input type="hidden" name="subtotal" value="${escapeHtml(editing?.subtotal || '0.00')}">
@@ -624,10 +655,19 @@ function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invo
     </section>
 
     <section class="invoice-sheet-section invoice-editor-section invoice-materials-section" aria-labelledby="${formId}MaterialsHeading">
-      <div class="invoice-editor-section-head"><span>4</span><div><h3 id="${formId}MaterialsHeading">Additional Materials</h3><p>Add parts or materials that belong on this Invoice.</p></div></div>
-      <div class="invoice-material-head"><span>Description</span><span>Qty</span><span>Unit Price</span><span>Line Total</span><span></span></div>
-      <div id="invoiceMaterialRows">${materials.length ? materials.map(invoiceMaterialRowHtml).join('') : ''}</div>
-      <button class="mini invoice-add-line" id="addInvoiceMaterialLine" type="button">+ Add Material</button>
+      <div class="invoice-editor-section-head"><span>4</span><div><h3 id="${formId}MaterialsHeading">Additional Parts & Materials</h3><p>Add billable materials and taxable vendor charges that belong on this Invoice.</p></div></div>
+      <div class="invoice-materials-subsection">
+        <h4>Parts & Materials</h4>
+        <div class="invoice-material-head"><span>Description</span><span>Qty</span><span>Unit Price</span><span>Line Total</span><span></span></div>
+        <div id="invoiceMaterialRows">${materials.length ? materials.map(invoiceMaterialRowHtml).join('') : ''}</div>
+        <button class="mini invoice-add-line" id="addInvoiceMaterialLine" type="button">+ Add Material</button>
+      </div>
+      <div class="invoice-vendor-fees-subsection">
+        <h4>Vendor Fees</h4>
+        <div class="invoice-vendor-fee-head"><span>Fee name</span><span>Amount</span><span></span></div>
+        <div id="invoiceVendorFeeRows">${vendorFees.map(invoiceVendorFeeRowHtml).join('')}</div>
+        <button class="mini invoice-add-line" id="addInvoiceVendorFee" type="button">+ Add Vendor Fee</button>
+      </div>
     </section>
 
     <section class="invoice-sheet-section invoice-editor-section invoice-payments-section" aria-labelledby="${formId}PaymentsHeading">
@@ -643,6 +683,7 @@ function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invo
       <div class="invoice-totals-summary" aria-live="polite">
         <div><span>Labor</span><input id="invoiceLaborTotalDisplay2" readonly aria-readonly="true" value="${money(0)}"></div>
         <div><span>Materials</span><input id="invoiceMaterialsTotalDisplay" readonly aria-readonly="true" value="${money(0)}"></div>
+        <div><span>Vendor fees</span><input id="invoiceVendorFeesTotalDisplay" readonly aria-readonly="true" value="${money(0)}"></div>
         <div><span>Subtotal</span><input id="invoiceSubtotalDisplay" readonly aria-readonly="true" value="${money(0)}"></div>
         <div><span>Sales Tax</span><input id="invoiceTaxDisplay" readonly aria-readonly="true" value="${money(editing?.tax_amount || 0)}"></div>
         <div class="invoice-total-row"><span>Invoice Total</span><input id="invoiceTotalDisplay" readonly aria-readonly="true" value="${money(editing?.total_amount || 0)}"></div>
@@ -654,7 +695,7 @@ function invoiceInternalSheetHtml({editing=null, generatedInvoiceNumber='', invo
     <section class="invoice-sheet-section invoice-editor-section invoice-terms-notes-section" aria-labelledby="${formId}TermsHeading">
       <div class="invoice-editor-section-head"><span>7</span><div><h3 id="${formId}TermsHeading">Terms and Notes</h3><p>Keep client-facing terms separate from internal ForgeOps context.</p></div></div>
       <div class="invoice-terms-notes-grid">
-        <label>Payment Terms & Conditions<span>Included in the client-facing printout.</span><textarea name="terms" rows="6">${escapeHtml(terms)}</textarea></label>
+        <div class="invoice-terms-field">${savedTermsControlHtml({templates:termsTemplates, appliesTo:'invoice', formId})}<label>Payment Terms & Conditions<span>Included in the client-facing printout.</span><textarea name="terms" rows="6">${escapeHtml(terms)}</textarea></label></div>
         <label>Internal Notes<span>Retained with the Invoice; existing print behavior is unchanged.</span><textarea name="notes" rows="6" placeholder="Internal context, reminders, or follow-up notes">${escapeHtml(editing?.notes)}</textarea></label>
       </div>
       <div class="invoice-print-note"><strong>Print content preserved</strong><span>Client approval and signature lines remain in the printed Invoice and Ledger packet.</span></div>
@@ -685,23 +726,39 @@ function invoiceLaborRowHtml(entry, currentInvoiceId=null) {
   </article>`;
 }
 
+function invoiceVendorFeeRowHtml(item={}) {
+  const amount = item.line_total ?? item.unit_price ?? '0.00';
+  return `<article class="invoice-vendor-fee-row invoice-line-card" data-kind="vendor_fee">
+    <label class="invoice-line-field invoice-line-description"><span>Fee name</span><input name="invoice_vendor_fee_name" required maxlength="500" placeholder="Shipping, permit, delivery..." value="${escapeHtml(item.description || '')}"></label>
+    <label class="invoice-line-field"><span>Amount</span><input name="invoice_vendor_fee_amount" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(amount)}"></label>
+    <button class="mini danger-mini invoice-remove-line" type="button" aria-label="Remove vendor fee">Remove</button>
+  </article>`;
+}
+
 function wireInvoiceLineEditor(container) {
   const form = container.querySelector('.invoice-internal-sheet');
   if (!form) return;
   const materialRows = form.querySelector('#invoiceMaterialRows');
+  const vendorFeeRows = form.querySelector('#invoiceVendorFeeRows');
   const creditRows = form.querySelector('#invoiceCreditRows');
   const addMaterial = form.querySelector('#addInvoiceMaterialLine');
+  const addVendorFee = form.querySelector('#addInvoiceVendorFee');
   const addCredit = form.querySelector('#addInvoiceCreditLine');
   if (addMaterial) addMaterial.onclick = () => {
     materialRows?.insertAdjacentHTML('beforeend', invoiceMaterialRowHtml({quantity:'1.00', unit_price:'0.00', line_total:'0.00'}));
     wireInvoiceLineEditor(container); recalcInvoiceEditor(container);
   };
+  if (addVendorFee) addVendorFee.onclick = () => {
+    vendorFeeRows?.insertAdjacentHTML('beforeend', invoiceVendorFeeRowHtml({line_total:'0.00'}));
+    wireInvoiceLineEditor(container); recalcInvoiceEditor(container);
+    vendorFeeRows?.lastElementChild?.querySelector('[name="invoice_vendor_fee_name"]')?.focus();
+  };
   if (addCredit) addCredit.onclick = () => {
     creditRows?.insertAdjacentHTML('beforeend', invoiceCreditRowHtml({kind:'payment', line_total:'0.00'}));
     wireInvoiceLineEditor(container); recalcInvoiceEditor(container);
   };
-  form.querySelectorAll('.invoice-remove-line').forEach(btn => btn.onclick = () => { btn.closest('.invoice-material-row,.invoice-credit-row')?.remove(); recalcInvoiceEditor(container); });
-  form.querySelectorAll('#invoiceMaterialRows input,#invoiceMaterialRows select,#invoiceCreditRows input,#invoiceCreditRows select').forEach(el => el.oninput = () => recalcInvoiceEditor(container));
+  form.querySelectorAll('.invoice-remove-line').forEach(btn => btn.onclick = () => { btn.closest('.invoice-material-row,.invoice-vendor-fee-row,.invoice-credit-row')?.remove(); recalcInvoiceEditor(container); });
+  form.querySelectorAll('#invoiceMaterialRows input,#invoiceMaterialRows select,#invoiceVendorFeeRows input,#invoiceCreditRows input,#invoiceCreditRows select').forEach(el => el.oninput = () => recalcInvoiceEditor(container));
 }
 
 function recalcInvoiceEditor(container) {
@@ -710,7 +767,6 @@ function recalcInvoiceEditor(container) {
   const selectedRows = [...form.querySelectorAll('.invoice-labor-row')].filter(row => row.querySelector('.invoice-labor-check')?.checked);
   const laborTotal = selectedRows.reduce((sum, row) => sum + Number(row.dataset.lineTotal || 0), 0);
   const lineItems = [];
-  let materialsTotal = 0;
   [...form.querySelectorAll('.invoice-material-row')].forEach((row, index) => {
     const description = row.querySelector('[name="material_description"]')?.value?.trim() || '';
     const quantity = Number(row.querySelector('[name="material_quantity"]')?.value || 0);
@@ -718,37 +774,36 @@ function recalcInvoiceEditor(container) {
     const lineTotal = quantity * unitPrice;
     const display = row.querySelector('[name="material_line_total"]');
     if (display) display.value = money(lineTotal);
-    materialsTotal += lineTotal;
     if (description || lineTotal > 0) lineItems.push({kind:'material', description: description || 'Additional parts/materials', quantity: decimalString(quantity), unit_price: decimalString(unitPrice), line_total: decimalString(lineTotal), taxable: true, sort_order: (index + 1) * 10});
   });
-  let paid = 0;
+  [...form.querySelectorAll('.invoice-vendor-fee-row')].forEach((row, index) => {
+    const description = row.querySelector('[name="invoice_vendor_fee_name"]')?.value?.trim() || '';
+    const amount = Number(row.querySelector('[name="invoice_vendor_fee_amount"]')?.value || 0);
+    if (description || amount > 0) lineItems.push({kind:'vendor_fee', description, quantity:'1.00', unit_price:decimalString(amount), line_total:decimalString(amount), taxable:true, sort_order:500 + ((index + 1) * 10)});
+  });
   [...form.querySelectorAll('.invoice-credit-row')].forEach((row, index) => {
     const kind = row.querySelector('[name="credit_kind"]')?.value || 'payment';
     const description = row.querySelector('[name="credit_description"]')?.value?.trim() || statusLabel(kind);
     const amount = Number(row.querySelector('[name="credit_amount"]')?.value || 0);
-    paid += amount;
     if (description || amount > 0) lineItems.push({kind, description, quantity: '1.00', unit_price: decimalString(amount), line_total: decimalString(amount), taxable: false, sort_order: 1000 + ((index + 1) * 10)});
   });
-  const subtotal = laborTotal + materialsTotal;
   const taxRate = percentSetting(form.dataset.salesTaxRate || '0.07', 0.07);
-  const taxableBase = subtotal;
-  const tax = taxableBase * taxRate;
-  const total = subtotal + tax;
-  const balance = total - paid;
+  const totals = calculateInvoiceTotals({laborTotal, lineItems, salesTaxRate:taxRate});
   const laborIds = selectedRows.map(row => Number(row.dataset.laborId)).filter(Boolean);
   const setVal = (name, value) => { const el = form.querySelector(`[name="${name}"]`); if (el) el.value = decimalString(value); };
-  setVal('subtotal', subtotal); setVal('tax_amount', tax); setVal('total_amount', total); setVal('amount_paid', paid);
+  setVal('subtotal', totals.subtotal); setVal('tax_amount', totals.tax); setVal('total_amount', totals.total); setVal('amount_paid', totals.paid);
   const display = (selector, value) => { form.querySelectorAll(selector).forEach(el => { if ('value' in el) el.value = money(value); else el.textContent = money(value); }); };
   display('#invoiceLaborTotalDisplay', laborTotal);
   display('#invoiceLaborTotalDisplay2', laborTotal);
-  display('#invoiceMaterialsTotalDisplay', materialsTotal);
-  display('#invoiceSubtotalDisplay', taxableBase);
-  display('#invoiceTaxDisplay', tax);
-  display('#invoiceTotalDisplay', total);
-  display('#invoiceCreditsDisplay', paid);
-  display('#invoiceBalanceDisplay', balance);
-  display('[data-invoice-sticky-balance]', balance);
-  return {subtotal, tax, total, paid, balance, laborIds, lineItems};
+  display('#invoiceMaterialsTotalDisplay', totals.materialsTotal);
+  display('#invoiceVendorFeesTotalDisplay', totals.vendorFeesTotal);
+  display('#invoiceSubtotalDisplay', totals.subtotal);
+  display('#invoiceTaxDisplay', totals.tax);
+  display('#invoiceTotalDisplay', totals.total);
+  display('#invoiceCreditsDisplay', totals.paid);
+  display('#invoiceBalanceDisplay', totals.balance);
+  display('[data-invoice-sticky-balance]', totals.balance);
+  return {...totals, laborIds, lineItems};
 }
 
 async function refreshInvoiceLaborRows(container, {clientId='', projectId='', invoiceId=null}={}) {
@@ -803,6 +858,7 @@ async function wireInvoiceInternalForm(container, {formId, clientSelectId=null, 
     };
   }
   wireInvoiceLineEditor(container);
+  wireTermsTemplateApply(container, formId, state.termsTemplates);
   form.querySelector('.invoice-cancel')?.addEventListener('click', () => container.querySelector('.modal-close')?.click());
   await reloadLabor();
   recalcInvoiceEditor(container);
@@ -1149,11 +1205,12 @@ async function preloadLookups(force=false) {
   const now = Date.now();
   if (!force && state.lookupCachePromise && now - state.lookupCacheAt < 30000) return state.lookupCachePromise;
   state.lookupCachePromise = (async () => {
-    const [clients, projects, quotes, invoices, ledgerCategories, serviceTypes, salesTaxPeriods] = await Promise.allSettled([
+    const [clients, projects, quotes, invoices, termsTemplates, ledgerCategories, serviceTypes, salesTaxPeriods] = await Promise.allSettled([
       api('/api/clients?page_size=100'),
       api('/api/projects?page_size=100'),
       api('/api/quotes?page_size=100'),
       api('/api/invoices?page_size=100'),
+      api('/api/terms'),
       api('/api/dropdowns?kind=ledger_category&page_size=100'),
       api('/api/dropdowns?kind=service_type&page_size=100'),
       api('/api/reports/ny-sales-tax-periods'),
@@ -1162,6 +1219,7 @@ async function preloadLookups(force=false) {
     state.projects = projects.status === 'fulfilled' ? projects.value.items : [];
     state.quotes = quotes.status === 'fulfilled' ? quotes.value.items : [];
     state.invoices = invoices.status === 'fulfilled' ? invoices.value.items : [];
+    state.termsTemplates = termsTemplates.status === 'fulfilled' ? termsTemplates.value.items : [];
     state.dropdowns.ledger_category = ledgerCategories.status === 'fulfilled' ? ledgerCategories.value.items : [];
     state.dropdowns.service_type = serviceTypes.status === 'fulfilled' ? serviceTypes.value.items : [];
     state.salesTaxPeriods = salesTaxPeriods.status === 'fulfilled' ? salesTaxPeriods.value.items : [];
@@ -1616,6 +1674,14 @@ function defaultQuoteTerms(terms) {
   return quoteTermsValue(terms, DEFAULT_QUOTE_TERMS).split('\n').filter(Boolean);
 }
 
+function quoteVendorFeePrintRows(items, totals) {
+  const rows = quoteVendorFeeItems(items)
+    .filter(item => Number(item.line_total || 0) > 0)
+    .map(item => `<tr><td>${escapeHtml(item.name)}</td><td class="right">${money(item.line_total)}</td></tr>`)
+    .join('');
+  return `${rows}<tr><td>Vendor Fees Total</td><td class="right">${money(totals.vendorFeesTotal)}</td></tr>`;
+}
+
 
 async function receiptPrintSection(receiptId, {pageBreak=true, heading='Receipt'} = {}) {
   if (!receiptId) return '';
@@ -1647,7 +1713,7 @@ async function quotePrintSection(id, {pageBreak=false, quoteRecord=null, setting
   const equipment = equipmentRowsFromItems(items);
   const labor = laborRowsFromItems(items);
   const totals = calculateQuoteTotals(items, percentSetting(settings.sales_tax_rate ?? '0.07', 0.07));
-  const fee = n => feeByName(items, n) ? money(feeByName(items, n).line_total) : '$0.00';
+  const vendorFeeRows = quoteVendorFeePrintRows(items, totals);
   const equipmentRows = equipment.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(i.description)}</td><td class="right">${Number(i.quantity || 0).toFixed(2)}</td><td class="right">${money(i.unit_price)}</td><td class="right">${money(i.line_total)}</td></tr>`).join('') || '<tr><td colspan="5">No equipment/material lines.</td></tr>';
   const laborRows = labor.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(i.description)}</td><td class="right">${Number(i.quantity || 0).toFixed(2)}</td><td class="right">${money(i.unit_price)}</td><td class="right">${money(i.line_total)}</td></tr>`).join('') || '<tr><td colspan="5">No labor lines.</td></tr>';
   const terms = defaultQuoteTerms(quoteTermsValue(quote.terms, settings.default_quote_terms)).map(t => `<p>• ${escapeHtml(t.replace(/^[-•]\s*/, ''))}</p>`).join('');
@@ -1655,7 +1721,7 @@ async function quotePrintSection(id, {pageBreak=false, quoteRecord=null, setting
   const approval = includeApproval ? '<div class="banner">Client Approval & Authorization</div><p>By signing below, the client acknowledges and agrees to the scope, pricing, and payment terms outlined in this quote.</p><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>' : '';
   const clientLabel = clientRecord?.name || clientName(quote.client_id);
   const projectLabel = projectRecord?.name || projectName(quote.project_id) || '';
-  return `<section class="print-section packet-primary-document ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>${escapeHtml(heading)}</h2><div class="grid"><div class="box"><strong>Client</strong><br>${escapeHtml(clientLabel)}<br>${escapeHtml(projectLabel)}</div><div class="box"><strong>Quote #:</strong> ${escapeHtml(quote.quote_number)}<br><strong>Date:</strong> ${escapeHtml(quote.quote_date || '')}<br><strong>Valid Through:</strong> ${escapeHtml(quote.valid_until || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(quote.status))}</div></div><h2>${escapeHtml(quote.title || '')}</h2><div class="banner">Equipment & Materials</div><table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${equipmentRows}</tbody></table><table><tbody><tr><td>Equipment Subtotal</td><td class="right">${money(totals.equipmentSubtotal)}</td></tr><tr><td>Shipping & Freight</td><td class="right">${fee('shipping')}</td></tr><tr><td>Tariff Surcharge</td><td class="right">${fee('tariff')}</td></tr><tr><td>Sales Tax</td><td class="right">${money(totals.tax)}</td></tr><tr><td>Project Coordination & Logistics</td><td class="right">${fee('coordination')}</td></tr><tr class="total"><td>Total Equipment Cost</td><td class="right">${money(totals.equipmentTotal)}</td></tr></tbody></table><div class="banner">Labor – Installation & Configuration (Estimate)</div><table><thead><tr><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><table><tbody><tr><td>Estimated Labor Total</td><td class="right">${money(totals.laborTotal)}</td></tr><tr class="total"><td>Estimated Grand Total</td><td class="right">${money(totals.total)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div>${internalNotes}${approval}</section>`;
+  return `<section class="print-section packet-primary-document ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>${escapeHtml(heading)}</h2><div class="grid"><div class="box"><strong>Client</strong><br>${escapeHtml(clientLabel)}<br>${escapeHtml(projectLabel)}</div><div class="box"><strong>Quote #:</strong> ${escapeHtml(quote.quote_number)}<br><strong>Date:</strong> ${escapeHtml(quote.quote_date || '')}<br><strong>Valid Through:</strong> ${escapeHtml(quote.valid_until || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(quote.status))}</div></div><h2>${escapeHtml(quote.title || '')}</h2><div class="banner">Equipment & Materials</div><table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${equipmentRows}</tbody></table><table><tbody><tr><td>Equipment Subtotal</td><td class="right">${money(totals.equipmentSubtotal)}</td></tr>${vendorFeeRows}<tr><td>Sales Tax</td><td class="right">${money(totals.tax)}</td></tr><tr><td>Project Coordination & Logistics</td><td class="right">${money(totals.markup)}</td></tr><tr class="total"><td>Total Equipment Cost</td><td class="right">${money(totals.equipmentTotal)}</td></tr></tbody></table><div class="banner">Labor – Installation & Configuration (Estimate)</div><table><thead><tr><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><table><tbody><tr><td>Estimated Labor Total</td><td class="right">${money(totals.laborTotal)}</td></tr><tr class="total"><td>Estimated Grand Total</td><td class="right">${money(totals.total)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div>${internalNotes}${approval}</section>`;
 }
 
 async function invoicePrintSection(id, {pageBreak=false, invoiceRecord=null, settingsOverride=null, clientRecord=null, projectRecord=null, laborEntries=null, heading='Associated Invoice', includeApproval=false, adminNotes=false} = {}) {
@@ -1669,17 +1735,20 @@ async function invoicePrintSection(id, {pageBreak=false, invoiceRecord=null, set
   const laborRows = labor.map(l => `<tr><td>${escapeHtml(l.work_date)}</td><td>${escapeHtml(l.service_type)}</td><td>${escapeHtml(l.notes || '')}</td><td class="right">${Number(l.hours || 0).toFixed(2)}</td><td class="right">${money(l.hourly_rate)}</td><td class="right">${money(l.line_total)}</td></tr>`).join('') || `<tr><td colspan="6">${escapeHtml(invoice.notes || 'Labor services')}</td></tr>`;
   const lineItems = invoice.line_items || [];
   const materials = lineItems.filter(item => item.kind === 'material');
+  const vendorFees = lineItems.filter(item => item.kind === 'vendor_fee');
   const credits = lineItems.filter(item => ['credit','payment','adjustment'].includes(String(item.kind)));
   const materialRows = materials.map(item => `<tr><td>${escapeHtml(item.description)}</td><td class="right">${Number(item.quantity || 0).toFixed(2)}</td><td class="right">${money(item.unit_price)}</td><td class="right">${money(item.line_total)}</td></tr>`).join('') || `<tr><td colspan="4">No additional parts or materials.</td></tr>`;
+  const vendorFeeRows = vendorFees.map(item => `<tr><td>${escapeHtml(item.description)}</td><td class="right">${money(item.line_total)}</td></tr>`).join('') || `<tr><td colspan="2">No vendor fees.</td></tr>`;
   const creditRows = credits.map(item => `<tr><td>${escapeHtml(statusLabel(item.kind))}</td><td>${escapeHtml(item.description)}</td><td class="right">-${money(item.line_total)}</td></tr>`).join('') || `<tr><td colspan="3">No credits or payments applied.</td></tr>`;
   const materialsTotal = materials.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+  const vendorFeesTotal = vendorFees.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
   const laborTotal = labor.reduce((sum, l) => sum + Number(l.line_total || 0), 0);
   const terms = invoiceTermsValue(invoice.terms, settings.default_invoice_terms).split('\n').filter(Boolean).map(t => `<p>• ${escapeHtml(t.replace(/^[-•]\s*/, ''))}</p>`).join('');
   const internalNotes = adminNotes && invoice.notes ? `<div class="packet-note"><strong>Internal Invoice Notes</strong><p>${escapeHtml(invoice.notes)}</p></div>` : '';
   const approval = includeApproval ? '<div class="banner">Client Approval & Acknowledgment</div><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>' : '';
   const clientLabel = clientRecord?.name || clientName(invoice.client_id);
   const projectLabel = projectRecord?.name || projectName(invoice.project_id) || '';
-  return `<section class="print-section packet-primary-document ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>${escapeHtml(heading)}</h2><div class="grid"><div class="box"><strong>Bill To</strong><br>${escapeHtml(clientLabel)}<br>${escapeHtml(projectLabel)}</div><div class="box"><strong>Invoice #:</strong> ${escapeHtml(invoice.invoice_number)}<br><strong>Date:</strong> ${escapeHtml(invoice.invoice_date || '')}<br><strong>Due:</strong> ${escapeHtml(invoice.due_date || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(invoice.status))}</div></div><h2>${escapeHtml(invoice.title || 'Labor Services')}</h2><div class="banner">Labor Summary</div><table><thead><tr><th>Date</th><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><div class="banner">Additional Parts & Materials</div><table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${materialRows}</tbody></table><div class="banner">Credits / Payments Applied</div><table><thead><tr><th>Type</th><th>Description</th><th>Amount</th></tr></thead><tbody>${creditRows}</tbody></table><table><tbody><tr><td>Labor Total</td><td class="right">${money(laborTotal)}</td></tr><tr><td>Parts / Materials</td><td class="right">${money(materialsTotal)}</td></tr><tr><td>Sales Tax</td><td class="right">${money(invoice.tax_amount)}</td></tr><tr class="total"><td>Invoice Total</td><td class="right">${money(invoice.total_amount)}</td></tr><tr><td>Credits / Payments Applied</td><td class="right">-${money(invoice.amount_paid)}</td></tr><tr class="total"><td>Balance Due</td><td class="right">${money(invoice.balance_due)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div>${internalNotes}${approval}</section>`;
+  return `<section class="print-section packet-primary-document ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>${escapeHtml(heading)}</h2><div class="grid"><div class="box"><strong>Bill To</strong><br>${escapeHtml(clientLabel)}<br>${escapeHtml(projectLabel)}</div><div class="box"><strong>Invoice #:</strong> ${escapeHtml(invoice.invoice_number)}<br><strong>Date:</strong> ${escapeHtml(invoice.invoice_date || '')}<br><strong>Due:</strong> ${escapeHtml(invoice.due_date || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(invoice.status))}</div></div><h2>${escapeHtml(invoice.title || 'Labor Services')}</h2><div class="banner">Labor Summary</div><table><thead><tr><th>Date</th><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><div class="banner">Additional Parts & Materials</div><table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${materialRows}</tbody></table><div class="banner">Vendor Fees</div><table><thead><tr><th>Fee</th><th>Amount</th></tr></thead><tbody>${vendorFeeRows}</tbody></table><div class="banner">Credits / Payments Applied</div><table><thead><tr><th>Type</th><th>Description</th><th>Amount</th></tr></thead><tbody>${creditRows}</tbody></table><table><tbody><tr><td>Labor Total</td><td class="right">${money(laborTotal)}</td></tr><tr><td>Parts / Materials</td><td class="right">${money(materialsTotal)}</td></tr><tr><td>Vendor Fees</td><td class="right">${money(vendorFeesTotal)}</td></tr><tr><td>Sales Tax</td><td class="right">${money(invoice.tax_amount)}</td></tr><tr class="total"><td>Invoice Total</td><td class="right">${money(invoice.total_amount)}</td></tr><tr><td>Credits / Payments Applied</td><td class="right">-${money(invoice.amount_paid)}</td></tr><tr class="total"><td>Balance Due</td><td class="right">${money(invoice.balance_due)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div>${internalNotes}${approval}</section>`;
 }
 
 async function printQuote(id) {
@@ -1692,11 +1761,11 @@ async function printQuote(id) {
   const equipment = equipmentRowsFromItems(items);
   const labor = laborRowsFromItems(items);
   const totals = calculateQuoteTotals(items, percentSetting(settings.sales_tax_rate ?? '0.07', 0.07));
-  const fee = n => feeByName(items, n) ? money(feeByName(items, n).line_total) : '$0.00';
+  const vendorFeeRows = quoteVendorFeePrintRows(items, totals);
   const equipmentRows = equipment.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(i.description)}</td><td class="right">${Number(i.quantity || 0).toFixed(2)}</td><td class="right">${money(i.unit_price)}</td><td class="right">${money(i.line_total)}</td></tr>`).join('') || '<tr><td colspan="5">No equipment/material lines.</td></tr>';
   const laborRows = labor.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(i.description)}</td><td class="right">${Number(i.quantity || 0).toFixed(2)}</td><td class="right">${money(i.unit_price)}</td><td class="right">${money(i.line_total)}</td></tr>`).join('') || '<tr><td colspan="5">No labor lines.</td></tr>';
   const terms = defaultQuoteTerms(quoteTermsValue(quote.terms, settings.default_quote_terms)).map(t => `<p>• ${escapeHtml(t.replace(/^[-•]\s*/, ''))}</p>`).join('');
-  printWindow(`Quote ${quote.quote_number}`, `<h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>Quote</h2><div class="grid"><div class="box"><strong>Client</strong><br>${escapeHtml(clientName(quote.client_id))}<br>${escapeHtml(projectName(quote.project_id) || '')}</div><div class="box"><strong>Quote #:</strong> ${escapeHtml(quote.quote_number)}<br><strong>Date:</strong> ${escapeHtml(quote.quote_date || '')}<br><strong>Valid Through:</strong> ${escapeHtml(quote.valid_until || '')}</div></div><h2>${escapeHtml(quote.title || '')}</h2><div class="banner">Equipment & Materials</div><table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${equipmentRows}</tbody></table><table><tbody><tr><td>Equipment Subtotal</td><td class="right">${money(totals.equipmentSubtotal)}</td></tr><tr><td>Shipping & Freight</td><td class="right">${fee('shipping')}</td></tr><tr><td>Tariff Surcharge</td><td class="right">${fee('tariff')}</td></tr><tr><td>Sales Tax</td><td class="right">${money(totals.tax)}</td></tr><tr><td>Project Coordination & Logistics</td><td class="right">${fee('coordination')}</td></tr><tr class="total"><td>Total Equipment Cost</td><td class="right">${money(totals.equipmentTotal)}</td></tr></tbody></table><div class="banner">Labor – Installation & Configuration (Estimate)</div><table><thead><tr><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><table><tbody><tr><td>Estimated Labor Total</td><td class="right">${money(totals.laborTotal)}</td></tr><tr class="total"><td>Estimated Grand Total</td><td class="right">${money(totals.total)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div><div class="banner">Client Approval & Authorization</div><p>By signing below, the client acknowledges and agrees to the scope, pricing, and payment terms outlined in this quote.</p><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>`);
+  printWindow(`Quote ${quote.quote_number}`, `<h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>Quote</h2><div class="grid"><div class="box"><strong>Client</strong><br>${escapeHtml(clientName(quote.client_id))}<br>${escapeHtml(projectName(quote.project_id) || '')}</div><div class="box"><strong>Quote #:</strong> ${escapeHtml(quote.quote_number)}<br><strong>Date:</strong> ${escapeHtml(quote.quote_date || '')}<br><strong>Valid Through:</strong> ${escapeHtml(quote.valid_until || '')}</div></div><h2>${escapeHtml(quote.title || '')}</h2><div class="banner">Equipment & Materials</div><table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${equipmentRows}</tbody></table><table><tbody><tr><td>Equipment Subtotal</td><td class="right">${money(totals.equipmentSubtotal)}</td></tr>${vendorFeeRows}<tr><td>Sales Tax</td><td class="right">${money(totals.tax)}</td></tr><tr><td>Project Coordination & Logistics</td><td class="right">${money(totals.markup)}</td></tr><tr class="total"><td>Total Equipment Cost</td><td class="right">${money(totals.equipmentTotal)}</td></tr></tbody></table><div class="banner">Labor – Installation & Configuration (Estimate)</div><table><thead><tr><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><table><tbody><tr><td>Estimated Labor Total</td><td class="right">${money(totals.laborTotal)}</td></tr><tr class="total"><td>Estimated Grand Total</td><td class="right">${money(totals.total)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div><div class="banner">Client Approval & Authorization</div><p>By signing below, the client acknowledges and agrees to the scope, pricing, and payment terms outlined in this quote.</p><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>`);
 }
 
 async function printInvoice(id) {
@@ -1709,13 +1778,16 @@ async function printInvoice(id) {
   const laborRows = labor.map(l => `<tr><td>${escapeHtml(l.work_date)}</td><td>${escapeHtml(l.service_type)}</td><td>${escapeHtml(l.notes || '')}</td><td class="right">${Number(l.hours || 0).toFixed(2)}</td><td class="right">${money(l.hourly_rate)}</td><td class="right">${money(l.line_total)}</td></tr>`).join('') || `<tr><td colspan="6">${escapeHtml(invoice.notes || 'Labor services')}</td></tr>`;
   const lineItems = invoice.line_items || [];
   const materials = lineItems.filter(item => item.kind === 'material');
+  const vendorFees = lineItems.filter(item => item.kind === 'vendor_fee');
   const credits = lineItems.filter(item => ['credit','payment','adjustment'].includes(String(item.kind)));
   const materialRows = materials.map(item => `<tr><td>${escapeHtml(item.description)}</td><td class="right">${Number(item.quantity || 0).toFixed(2)}</td><td class="right">${money(item.unit_price)}</td><td class="right">${money(item.line_total)}</td></tr>`).join('') || `<tr><td colspan="4">No additional parts or materials.</td></tr>`;
+  const vendorFeeRows = vendorFees.map(item => `<tr><td>${escapeHtml(item.description)}</td><td class="right">${money(item.line_total)}</td></tr>`).join('') || `<tr><td colspan="2">No vendor fees.</td></tr>`;
   const creditRows = credits.map(item => `<tr><td>${escapeHtml(statusLabel(item.kind))}</td><td>${escapeHtml(item.description)}</td><td class="right">-${money(item.line_total)}</td></tr>`).join('') || `<tr><td colspan="3">No credits or payments applied.</td></tr>`;
   const materialsTotal = materials.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+  const vendorFeesTotal = vendorFees.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
   const laborTotal = labor.reduce((sum, l) => sum + Number(l.line_total || 0), 0);
   const terms = invoiceTermsValue(invoice.terms, settings.default_invoice_terms).split('\n').filter(Boolean).map(t => `<p>• ${escapeHtml(t.replace(/^[-•]\s*/, ''))}</p>`).join('');
-  printWindow(`Invoice ${invoice.invoice_number}`, `<h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>Invoice</h2><div class="grid"><div class="box"><strong>Bill To</strong><br>${escapeHtml(clientName(invoice.client_id))}<br>${escapeHtml(projectName(invoice.project_id) || '')}</div><div class="box"><strong>Invoice #:</strong> ${escapeHtml(invoice.invoice_number)}<br><strong>Date:</strong> ${escapeHtml(invoice.invoice_date || '')}<br><strong>Due:</strong> ${escapeHtml(invoice.due_date || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(invoice.status))}</div></div><h2>${escapeHtml(invoice.title || 'Labor Services')}</h2><div class="banner">Labor Summary</div><table><thead><tr><th>Date</th><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><div class="banner">Additional Parts & Materials</div><table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${materialRows}</tbody></table><div class="banner">Credits / Payments Applied</div><table><thead><tr><th>Type</th><th>Description</th><th>Amount</th></tr></thead><tbody>${creditRows}</tbody></table><table><tbody><tr><td>Labor Total</td><td class="right">${money(laborTotal)}</td></tr><tr><td>Parts / Materials</td><td class="right">${money(materialsTotal)}</td></tr><tr><td>Sales Tax</td><td class="right">${money(invoice.tax_amount)}</td></tr><tr class="total"><td>Invoice Total</td><td class="right">${money(invoice.total_amount)}</td></tr><tr><td>Credits / Payments Applied</td><td class="right">-${money(invoice.amount_paid)}</td></tr><tr class="total"><td>Balance Due</td><td class="right">${money(invoice.balance_due)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div><div class="banner">Client Approval & Acknowledgment</div><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>`);
+  printWindow(`Invoice ${invoice.invoice_number}`, `<h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>Invoice</h2><div class="grid"><div class="box"><strong>Bill To</strong><br>${escapeHtml(clientName(invoice.client_id))}<br>${escapeHtml(projectName(invoice.project_id) || '')}</div><div class="box"><strong>Invoice #:</strong> ${escapeHtml(invoice.invoice_number)}<br><strong>Date:</strong> ${escapeHtml(invoice.invoice_date || '')}<br><strong>Due:</strong> ${escapeHtml(invoice.due_date || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(invoice.status))}</div></div><h2>${escapeHtml(invoice.title || 'Labor Services')}</h2><div class="banner">Labor Summary</div><table><thead><tr><th>Date</th><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><div class="banner">Additional Parts & Materials</div><table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${materialRows}</tbody></table><div class="banner">Vendor Fees</div><table><thead><tr><th>Fee</th><th>Amount</th></tr></thead><tbody>${vendorFeeRows}</tbody></table><div class="banner">Credits / Payments Applied</div><table><thead><tr><th>Type</th><th>Description</th><th>Amount</th></tr></thead><tbody>${creditRows}</tbody></table><table><tbody><tr><td>Labor Total</td><td class="right">${money(laborTotal)}</td></tr><tr><td>Parts / Materials</td><td class="right">${money(materialsTotal)}</td></tr><tr><td>Vendor Fees</td><td class="right">${money(vendorFeesTotal)}</td></tr><tr><td>Sales Tax</td><td class="right">${money(invoice.tax_amount)}</td></tr><tr class="total"><td>Invoice Total</td><td class="right">${money(invoice.total_amount)}</td></tr><tr><td>Credits / Payments Applied</td><td class="right">-${money(invoice.amount_paid)}</td></tr><tr class="total"><td>Balance Due</td><td class="right">${money(invoice.balance_due)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div><div class="banner">Client Approval & Acknowledgment</div><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>`);
 }
 
 
@@ -2735,7 +2807,7 @@ async function renderQuotes(editId=null) {
       : `<div class="quote-desktop-list">${table(['Quote #','Title','Client','Project','Status','Date','Valid Until','Total','Actions'], quoteRows, 'quotes-table', quoteRowAttrs)}</div><div class="quote-mobile-list" aria-label="Quotes">${visibleQuotes.map(quoteCardHtml).join('')}</div>${quoteListEmptyHtml({search:true})}`;
   root.innerHTML = `<div class="quote-list-controls panel"><div class="quote-list-primary"><label class="search-field compact-search">Search Quotes<input id="quoteSearch" type="search" placeholder="Quote number, title, client, or project"></label><button class="primary" id="openQuoteModal" type="button">Add Quote</button></div><div class="quote-filter-row"><label class="filter-field">Status<select id="quoteStatusFilter"><option value="all">All Statuses</option><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="expired">Expired</option></select></label><label class="filter-field">Client<select id="quoteClientFilter"><option value="all">All Clients</option>${quoteClientOptions}</select></label><button class="ghost" id="resetQuoteFilters" type="button">Reset Filters</button><span class="quote-filter-indicator ${activeFilterCount ? '' : 'hidden'}">${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}</span><span class="quote-result-count" id="quoteResultCount">${visibleQuotes.length} quote${visibleQuotes.length === 1 ? '' : 's'}</span></div></div>
     <div class="quote-list-results">${listHtml}</div>
-    <div id="quoteModal" class="modal-backdrop quote-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="quoteFormTitle">${quoteEditorFormHtml({editing, generatedQuoteNumber, quoteNumberAttrs, settings, existingItems, formId:'quoteForm', clientSelectId:'quoteClient', projectSelectId:'quoteProject', closeButtonId:'closeQuoteModal', cancelButtonId:'cancelQuoteModal'})}</div>`;
+    <div id="quoteModal" class="modal-backdrop quote-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="quoteFormTitle">${quoteEditorFormHtml({editing, generatedQuoteNumber, quoteNumberAttrs, settings, existingItems, termsTemplates:state.termsTemplates, formId:'quoteForm', clientSelectId:'quoteClient', projectSelectId:'quoteProject', closeButtonId:'closeQuoteModal', cancelButtonId:'cancelQuoteModal'})}</div>`;
   const statusFilter = root.querySelector('#quoteStatusFilter');
   const clientFilter = root.querySelector('#quoteClientFilter');
   const searchInput = root.querySelector('#quoteSearch');
@@ -2753,6 +2825,7 @@ async function renderQuotes(editId=null) {
   form.status.value = editing?.status || 'draft';
   if (clientSelect) clientSelect.onchange = () => { projectSelect.innerHTML = projectOptions('', clientSelect.value); };
   wireQuoteLineEditor(root);
+  wireTermsTemplateApply(root, 'quoteForm', state.termsTemplates);
   form.onsubmit = async e => {
     e.preventDefault();
     try {
@@ -2808,7 +2881,7 @@ async function renderInvoices(editId=null, handoff={}) {
       : `<div class="invoice-desktop-list">${table(['Invoice','Client / Project','Status','Issued','Due','Total','Balance','Actions'], invoiceRows, 'invoices-table', invoiceRowAttrs)}</div><div class="invoice-mobile-list" aria-label="Invoices">${visibleInvoices.map(invoiceCardHtml).join('')}</div>${invoiceListEmptyHtml({search:true})}`;
   root.innerHTML = `<div class="invoice-list-controls panel"><div class="invoice-list-primary-controls"><label class="search-field compact-search">Search Invoices<input id="invoiceSearch" type="search" placeholder="Invoice number, title, client, project, or status"></label><button class="primary" id="openInvoiceModal" type="button">Add Invoice</button></div><div class="invoice-filter-row"><label class="filter-field">Status<select id="invoiceStatusFilter"><option value="all">All Statuses</option><option value="draft">Draft</option><option value="sent">Sent</option><option value="partially_paid">Partially Paid</option><option value="paid">Paid</option><option value="void">Void</option><option value="overdue">Overdue</option></select></label><label class="filter-field">Client<select id="invoiceClientFilter"><option value="all">All Clients</option>${invoiceClientOptions}</select></label><button class="ghost" id="resetInvoiceFilters" type="button">Reset Filters</button><span class="invoice-filter-indicator ${activeFilterCount ? '' : 'hidden'}">${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}</span><span class="invoice-result-count" id="invoiceResultCount">${visibleInvoices.length} invoice${visibleInvoices.length === 1 ? '' : 's'}</span></div></div>
     <div class="invoice-list-results">${listHtml}</div>
-    <div id="invoiceModal" class="modal-backdrop invoice-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="invoiceFormTitle">${invoiceEditorShellHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, presetClientId: handoff.clientId || '', scopedProjectId: handoff.projectId || '', scopedQuoteId: handoff.quoteId || '', settings, formId:'invoiceForm', clientSelectId:'invoiceClient', projectSelectId:'invoiceProject', quoteSelectId:'invoiceQuote', closeButtonId:'closeInvoiceModal'})}</div>`;
+    <div id="invoiceModal" class="modal-backdrop invoice-editor-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="invoiceFormTitle">${invoiceEditorShellHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, presetClientId: handoff.clientId || '', scopedProjectId: handoff.projectId || '', scopedQuoteId: handoff.quoteId || '', settings, termsTemplates:state.termsTemplates, formId:'invoiceForm', clientSelectId:'invoiceClient', projectSelectId:'invoiceProject', quoteSelectId:'invoiceQuote', closeButtonId:'closeInvoiceModal'})}</div>`;
   const statusFilter = root.querySelector('#invoiceStatusFilter');
   const clientFilter = root.querySelector('#invoiceClientFilter');
   const searchInput = root.querySelector('#invoiceSearch');
@@ -3441,7 +3514,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     const quoteNumberAttrs = isEdit ? '' : ' readonly aria-readonly="true" title="Generated automatically to prevent duplicate quote numbers"';
     wrapper.classList.add('quote-editor-backdrop');
     wrapper.setAttribute('aria-labelledby', 'clientQuoteFormTitle');
-    wrapper.innerHTML = quoteEditorFormHtml({editing, generatedQuoteNumber, quoteNumberAttrs, settings, existingItems, formId:'clientQuoteForm', projectSelectId:'clientQuoteProject', scopedClientId:clientId, scopedProjectId, clientLabel, scoped:true});
+    wrapper.innerHTML = quoteEditorFormHtml({editing, generatedQuoteNumber, quoteNumberAttrs, settings, existingItems, termsTemplates:state.termsTemplates, formId:'clientQuoteForm', projectSelectId:'clientQuoteProject', scopedClientId:clientId, scopedProjectId, clientLabel, scoped:true});
     root.appendChild(wrapper);
     wrapper._quoteReturnFocus = returnFocus;
     [...root.children].filter(child => child !== wrapper).forEach(child => { child.inert = true; });
@@ -3451,6 +3524,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     const form = wrapper.querySelector('#clientQuoteForm');
     form.status.value = editing?.status || 'draft';
     wireQuoteLineEditor(wrapper);
+    wireTermsTemplateApply(wrapper, 'clientQuoteForm', state.termsTemplates);
     form.onsubmit = async e => {
       e.preventDefault();
       try {
@@ -3468,7 +3542,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     const invoiceNumberAttrs = isEdit ? '' : ' readonly aria-readonly="true" title="Generated automatically to prevent duplicate invoice numbers"';
     wrapper.classList.add('invoice-editor-backdrop');
     wrapper.setAttribute('aria-labelledby', 'clientInvoiceFormTitle');
-    wrapper.innerHTML = invoiceEditorShellHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, scopedClientId: clientId, scopedProjectId, scopedQuoteId, clientLabel, settings, formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote'});
+    wrapper.innerHTML = invoiceEditorShellHtml({editing, generatedInvoiceNumber, invoiceNumberAttrs, scopedClientId: clientId, scopedProjectId, scopedQuoteId, clientLabel, settings, termsTemplates:state.termsTemplates, formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote'});
     root.appendChild(wrapper);
     wrapper._quoteReturnFocus = returnFocus;
     [...root.children].filter(child => child !== wrapper).forEach(child => { child.inert = true; });
@@ -3921,14 +3995,28 @@ async function downloadSettingsBackup(button, status) {
   }
 }
 
+function termsApplicabilityLabel(value) {
+  return value === 'both' ? 'Quotes & Invoices' : value === 'quote' ? 'Quotes' : 'Invoices';
+}
+
+function termsLibraryListHtml(items=[]) {
+  if (!items.length) return '<div class="settings-terms-empty">No saved terms yet. Document defaults still apply normally.</div>';
+  return items.map(template => `<article class="settings-terms-card">
+    <div><strong>${escapeHtml(template.name)}</strong><span>${escapeHtml(termsApplicabilityLabel(template.applies_to))}</span><p>${escapeHtml(template.content)}</p></div>
+    <div class="row-actions"><button class="mini" type="button" data-terms-action="edit" data-id="${Number(template.id)}">Edit</button><button class="mini danger-mini" type="button" data-terms-action="delete" data-id="${Number(template.id)}">Delete</button></div>
+  </article>`).join('');
+}
+
 async function renderAdmin() {
-  const [records, dropdowns, settingsResponse] = await Promise.all([
+  const [records, dropdowns, settingsResponse, termsResponse] = await Promise.all([
     api('/api/admin/backups'),
     api('/api/admin/dropdowns?include_inactive=true&page_size=100'),
     api('/api/admin/settings'),
+    api('/api/terms'),
   ]);
   const settings = settingsResponse.settings || {};
   const rows = dropdowns.items || [];
+  const termsTemplates = termsResponse.items || [];
   const salesTaxPercent = settingsRatePercent(settings.sales_tax_rate, '7');
   const incomeTaxPercent = settingsRatePercent(settings.income_tax_reserve_rate, '30');
   root.innerHTML = `<div class="settings-workspace">
@@ -3963,6 +4051,18 @@ async function renderAdmin() {
         <button id="saveBusinessSettings" class="primary" type="submit" disabled>Save Settings</button>
       </div>
     </form>
+
+    <section class="settings-section settings-terms-section" aria-labelledby="termsLibraryTitle">
+      <div class="settings-section-heading"><div><p class="settings-eyebrow">Reusable document text</p><h2 id="termsLibraryTitle">Terms Library</h2></div><p>Saved terms are copied into a Quote or Invoice when applied. Updating this library never changes an existing document.</p></div>
+      <form id="termsLibraryForm" class="settings-terms-form">
+        <input type="hidden" name="template_id">
+        <label class="settings-field"><span>Template Name</span><input name="name" required maxlength="160" placeholder="Example: Equipment deposit required"></label>
+        <label class="settings-field"><span>Available For</span><select name="applies_to" required><option value="both">Quotes & Invoices</option><option value="quote">Quotes only</option><option value="invoice">Invoices only</option></select></label>
+        <label class="settings-field settings-terms-content"><span>Terms Text</span><textarea name="content" required maxlength="2000" rows="5" placeholder="Enter reusable payment or document terms..."></textarea></label>
+        <div class="settings-terms-actions"><button id="saveTermsTemplate" class="primary" type="submit">Add Saved Terms</button><button id="cancelTermsEdit" class="ghost hidden" type="button">Cancel Edit</button><p id="termsLibraryStatus" class="settings-action-status" role="status"></p></div>
+      </form>
+      <div id="termsLibraryList" class="settings-terms-list">${termsLibraryListHtml(termsTemplates)}</div>
+    </section>
 
     <section class="settings-section settings-backup-section" aria-labelledby="backupSettingsTitle">
       <div class="settings-section-heading"><div><p class="settings-eyebrow">Data protection</p><h2 id="backupSettingsTitle">Backup & Restore</h2></div><p>Backups include the SQLite database, uploaded files, and exports in the existing ForgeOps ZIP format.</p></div>
@@ -4041,6 +4141,66 @@ async function renderAdmin() {
       settingsButton.textContent = 'Save Settings';
     }
   };
+
+  const termsForm = document.querySelector('#termsLibraryForm');
+  const termsStatus = document.querySelector('#termsLibraryStatus');
+  const termsSaveButton = document.querySelector('#saveTermsTemplate');
+  const termsCancelButton = document.querySelector('#cancelTermsEdit');
+  const resetTermsForm = () => {
+    termsForm.reset();
+    termsForm.elements.template_id.value = '';
+    termsSaveButton.textContent = 'Add Saved Terms';
+    termsCancelButton.classList.add('hidden');
+    termsStatus.textContent = '';
+    termsForm.elements.name.focus();
+  };
+  termsCancelButton.onclick = resetTermsForm;
+  termsForm.onsubmit = async event => {
+    event.preventDefault();
+    if (!termsForm.reportValidity()) return;
+    const payload = clean(formData(termsForm));
+    const templateId = payload.template_id;
+    delete payload.template_id;
+    termsSaveButton.disabled = true;
+    termsStatus.className = 'settings-action-status';
+    termsStatus.textContent = templateId ? 'Updating saved terms...' : 'Adding saved terms...';
+    try {
+      await api(templateId ? `/api/terms/${templateId}` : '/api/terms', {method:templateId ? 'PATCH' : 'POST', body:JSON.stringify(payload)});
+      show(templateId ? 'Saved terms updated' : 'Saved terms added');
+      await loadPage('admin');
+    } catch (err) {
+      termsSaveButton.disabled = false;
+      termsStatus.className = 'settings-action-status settings-status-error';
+      termsStatus.textContent = err.message;
+    }
+  };
+  root.querySelectorAll('[data-terms-action="edit"]').forEach(button => button.addEventListener('click', () => {
+    const template = termsTemplates.find(item => Number(item.id) === Number(button.dataset.id));
+    if (!template) return;
+    termsForm.elements.template_id.value = template.id;
+    termsForm.elements.name.value = template.name;
+    termsForm.elements.applies_to.value = template.applies_to;
+    termsForm.elements.content.value = template.content;
+    termsSaveButton.textContent = 'Update Saved Terms';
+    termsCancelButton.classList.remove('hidden');
+    termsStatus.textContent = `Editing ${template.name}.`;
+    termsForm.scrollIntoView({behavior:'smooth', block:'center'});
+    termsForm.elements.name.focus();
+  }));
+  root.querySelectorAll('[data-terms-action="delete"]').forEach(button => button.addEventListener('click', async () => {
+    const template = termsTemplates.find(item => Number(item.id) === Number(button.dataset.id));
+    if (!template || !confirm(`Delete saved terms "${template.name}"? Existing Quote and Invoice text will not change.`)) return;
+    button.disabled = true;
+    try {
+      await api(`/api/terms/${template.id}`, {method:'DELETE'});
+      show('Saved terms deleted');
+      await loadPage('admin');
+    } catch (err) {
+      button.disabled = false;
+      termsStatus.className = 'settings-action-status settings-status-error';
+      termsStatus.textContent = err.message;
+    }
+  }));
 
   const backupButton = document.querySelector('#backupBtn');
   backupButton.onclick = () => downloadSettingsBackup(backupButton, document.querySelector('#backupStatus'));

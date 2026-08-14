@@ -133,6 +133,28 @@
   line-height: 1.4;
 }
 
+.saved-terms-control { min-width: 0; display: grid; gap: .38rem; margin-bottom: .75rem; }
+.saved-terms-control > label { color: var(--text); font-size: .78rem; font-weight: 900; }
+.saved-terms-control > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; }
+.saved-terms-control select { width: 100%; min-width: 0; min-height: 44px; }
+.saved-terms-control button { min-height: 44px; }
+.saved-terms-control small { color: var(--text-muted); font-size: .72rem; line-height: 1.4; }
+
+.settings-terms-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, .45fr); gap: .75rem; padding: .85rem; background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius); }
+.settings-terms-content,
+.settings-terms-actions { grid-column: 1 / -1; }
+.settings-terms-content textarea { min-height: 120px; }
+.settings-terms-actions { display: flex; align-items: center; gap: .6rem; }
+.settings-terms-actions .settings-action-status { flex: 1 1 auto; }
+.settings-terms-list { display: grid; gap: .55rem; margin-top: .8rem; }
+.settings-terms-card { min-width: 0; display: flex; align-items: start; justify-content: space-between; gap: 1rem; padding: .75rem; background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.settings-terms-card > div:first-child { min-width: 0; display: grid; gap: .22rem; }
+.settings-terms-card strong { color: var(--text); font-size: .82rem; }
+.settings-terms-card span { width: fit-content; padding: .18rem .42rem; color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, var(--surface)); border-radius: 999px; font-size: .65rem; font-weight: 850; }
+.settings-terms-card p { display: -webkit-box; margin: .15rem 0 0; overflow: hidden; color: var(--text-muted); font-size: .74rem; line-height: 1.4; white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.settings-terms-card .row-actions { flex: 0 0 auto; }
+.settings-terms-empty { padding: 1rem; color: var(--text-muted); background: var(--surface-muted); border: 1px dashed var(--border); border-radius: var(--radius); font-size: .78rem; text-align: center; }
+
 .settings-input-affix {
   min-width: 0;
   display: grid;
@@ -529,6 +551,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .settings-terms-form { grid-template-columns: minmax(0, 1fr); }
+  .settings-terms-content,
+  .settings-terms-actions { grid-column: auto; }
+  .settings-terms-card { display: grid; }
+
   .settings-save-bar {
     padding: .72rem;
   }
@@ -627,6 +654,9 @@
 
   .settings-list-form { grid-template-columns: minmax(0, 1fr); }
   .settings-list-form > button { width: 100%; }
+  .saved-terms-control > div,
+  .settings-terms-actions { grid-template-columns: 1fr; display: grid; }
+  .settings-terms-actions button { width: 100%; }
 }
 
 @media (max-width: 360px) {

@@ -1,15 +1,17 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
 from app.api.deps import SessionDep, get_current_user
+from app.core.rates import normalize_percentage_rate
 from app.core.security import utc_now
-from app.models import Client, Invoice, Project, Quote, QuoteLineItem, QuoteStatus
+from app.models import AppSetting, Client, Invoice, Project, Quote, QuoteLineItem, QuoteLineItemKind, QuoteStatus
 from app.schemas import QuoteCreate, QuoteLineItemRead, QuoteLineItemsReplace, QuoteRead, QuoteUpdate
 
 router = APIRouter(prefix="/api/quotes", tags=["quotes"], dependencies=[Depends(get_current_user)])
+QUOTE_MARKUP_NAME = "Project Coordination & Logistics"
 
 
 def _validate_links(session: Session, client_id: int | None, project_id: int | None) -> None:
@@ -41,13 +43,41 @@ def _line_total(item: QuoteLineItem) -> Decimal:
     return (item.quantity * item.unit_price).quantize(Decimal("0.01"))
 
 
+def _money(value: Decimal | int | float | str | None) -> Decimal:
+    try:
+        decimal_value = Decimal(str(value if value is not None else "0"))
+    except (InvalidOperation, ValueError):
+        decimal_value = Decimal("0")
+    return decimal_value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _sales_tax_rate(session: Session) -> Decimal:
+    setting = session.get(AppSetting, "sales_tax_rate")
+    raw = setting.value if setting is not None else "0.07"
+    try:
+        return normalize_percentage_rate(raw)
+    except ValueError:
+        return Decimal("0.07")
+
+
+def _is_markup(item: QuoteLineItem) -> bool:
+    return item.kind == QuoteLineItemKind.fee and item.name.strip().casefold() == QUOTE_MARKUP_NAME.casefold()
+
+
 def _recalculate_quote_totals(session: Session, quote: Quote) -> Quote:
     items = session.exec(select(QuoteLineItem).where(QuoteLineItem.quote_id == quote.id)).all()
-    subtotal = sum((_line_total(item) for item in items), Decimal("0.00"))
-    # Tax is intentionally stored/edited at the quote level. This lets you use either
-    # taxable line-item math or your LLC spreadsheet estimate without fighting the app.
-    quote.subtotal = subtotal.quantize(Decimal("0.01"))
-    quote.total_amount = (quote.subtotal + quote.tax_amount).quantize(Decimal("0.01"))
+    equipment = [item for item in items if item.kind == QuoteLineItemKind.equipment]
+    labor = [item for item in items if item.kind == QuoteLineItemKind.labor]
+    vendor_fees = [item for item in items if item.kind == QuoteLineItemKind.fee and not _is_markup(item)]
+    markup = [item for item in items if _is_markup(item)]
+    equipment_total = sum((_line_total(item) for item in equipment), Decimal("0.00"))
+    taxable_equipment_total = sum((_line_total(item) for item in equipment if item.taxable), Decimal("0.00"))
+    vendor_fee_total = sum((_line_total(item) for item in vendor_fees), Decimal("0.00"))
+    labor_total = sum((_line_total(item) for item in labor), Decimal("0.00"))
+    markup_total = sum((_line_total(item) for item in markup), Decimal("0.00"))
+    quote.subtotal = _money(equipment_total + vendor_fee_total + markup_total + labor_total)
+    quote.tax_amount = _money((taxable_equipment_total + vendor_fee_total) * _sales_tax_rate(session))
+    quote.total_amount = _money(quote.subtotal + quote.tax_amount)
     quote.updated_at = utc_now()
     session.add(quote)
     session.commit()
@@ -163,6 +193,8 @@ def replace_quote_line_items(quote_id: int, payload: QuoteLineItemsReplace, sess
     for index, item_payload in enumerate(payload.items, start=1):
         data = item_payload.model_dump()
         data["quote_id"] = quote_id
+        if data["kind"] == QuoteLineItemKind.fee:
+            data["taxable"] = data["name"].strip().casefold() != QUOTE_MARKUP_NAME.casefold()
         quantity = Decimal(str(data.get("quantity") or "0"))
         unit_price = Decimal(str(data.get("unit_price") or "0"))
         line_total = Decimal(str(data.get("line_total") or "0"))

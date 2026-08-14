@@ -271,6 +271,35 @@
 .sheet-toolbar { margin: .55rem 0 0; }
 .quote-add-line { min-height: 42px; }
 
+.quote-vendor-fee-head,
+.quote-vendor-fee-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px 88px;
+  align-items: end;
+  gap: .45rem;
+}
+
+.quote-vendor-fee-head {
+  padding: 0 .45rem .2rem;
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 850;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.quote-vendor-fee-row {
+  margin-bottom: .45rem;
+  padding: .6rem;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.quote-vendor-fee-row .quote-line-field > span { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; color: var(--text-muted); font-size: .68rem; font-weight: 850; }
+.quote-remove-fee { min-height: 42px; }
+.quote-markup-grid { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+
 .quote-fee-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -359,6 +388,9 @@
   .quote-line-total { grid-column: 1 / -1; }
   .quote-taxable-control { justify-content: flex-start; min-height: 44px; }
   .labor-sheet-row .quote-remove-line { grid-column: 2; }
+  .quote-vendor-fee-head { display: none; }
+  .quote-vendor-fee-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .quote-vendor-fee-row .quote-line-name { grid-column: 1 / -1; }
 }
 
 @media (max-width: 800px) {

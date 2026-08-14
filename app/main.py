@@ -22,6 +22,7 @@ from app.api.routes import (
     reports,
     settings,
     setup,
+    terms,
 )
 from app.core.config import get_settings
 from app.core.errors import generic_exception_handler
@@ -65,6 +66,7 @@ app.include_router(receipts.router)
 app.include_router(reports.router)
 app.include_router(backups.router)
 app.include_router(settings.router)
+app.include_router(terms.router)
 
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
