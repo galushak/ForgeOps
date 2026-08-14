@@ -235,8 +235,17 @@ body.ledger-editor-open { overflow: hidden; }
 
 .ledger-editor-form .ledger-field textarea { min-height: 92px; resize: vertical; }
 .ledger-description-field { grid-column: 1 / -1; }
-.ledger-sales-tax-period-field { grid-column: 1 / -1; }
-.ledger-sales-tax-period-field small {
+.ledger-sales-tax-period-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 10rem);
+  gap: .75rem;
+  align-items: start;
+}
+.ledger-sales-tax-period-fields.hidden { display: none; }
+.ledger-sales-tax-year-field { max-width: 10rem; }
+.ledger-sales-tax-period-help {
+  grid-column: 1 / -1;
   color: var(--text-muted);
   font-size: .75rem;
   font-weight: 600;
@@ -420,7 +429,9 @@ body.ledger-editor-open { overflow: hidden; }
   .ledger-editor-section { padding: .8rem; border-radius: var(--radius); }
   .ledger-editor-grid { grid-template-columns: 1fr; gap: .65rem; }
   .ledger-description-field,
-  .ledger-sales-tax-period-field { grid-column: auto; }
+  .ledger-sales-tax-period-fields { grid-column: auto; grid-template-columns: 1fr; gap: .65rem; }
+  .ledger-sales-tax-period-help { grid-column: auto; }
+  .ledger-sales-tax-year-field { max-width: 10rem; }
   .ledger-editor-section-head { grid-template-columns: auto minmax(0, 1fr); }
   .ledger-kind-preview { grid-column: 2; justify-self: start; }
   .ledger-attached-receipt,

@@ -41,6 +41,7 @@ const LEDGER_CATEGORIES_BY_TYPE = {
 };
 const TAX_PAYMENT_CATEGORIES = new Set(['Sales Tax Paid', 'Sales Tax', 'Income Tax Paid', 'Income Tax']);
 const SALES_TAX_PERIOD_CATEGORY = 'Sales Tax Paid';
+const SALES_TAX_QUARTERS = [1, 2, 3, 4];
 function normalizeLedgerKind(value) { return value === 'revenue' ? 'income' : (value || 'income'); }
 function ledgerCategoryOptions(kind, selected='') {
   const normalized = normalizeLedgerKind(kind);
@@ -52,11 +53,30 @@ function ledgerKindLabel(kind) {
 }
 function salesTaxPeriodByKey(key) { return state.salesTaxPeriods.find(period => period.key === key); }
 function salesTaxPeriodLabel(key) { return salesTaxPeriodByKey(key)?.label || key || ''; }
-function salesTaxPeriodOptions(selected='') {
-  const periods = [...state.salesTaxPeriods].sort((a, b) => Number(b.year) - Number(a.year) || Number(a.quarter) - Number(b.quarter));
-  const options = periods.map(period => `<option value="${escapeHtml(period.key)}" ${String(selected)===String(period.key)?'selected':''}>${escapeHtml(period.label)}</option>`).join('');
-  const selectedIsMissing = selected && !periods.some(period => period.key === selected);
-  return `${selectedIsMissing ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}</option>` : ''}${options}`;
+function parseSalesTaxPeriod(value='') {
+  const match = String(value || '').match(/^(\d{4})-(Q[1-4])$/);
+  return match ? {year: match[1], quarter: match[2]} : {year: '', quarter: ''};
+}
+function composeSalesTaxPeriod(year, quarter) {
+  const normalizedYear = String(year ?? '').trim();
+  const normalizedQuarter = String(quarter ?? '').trim();
+  return /^\d{4}$/.test(normalizedYear) && /^Q[1-4]$/.test(normalizedQuarter) ? `${normalizedYear}-${normalizedQuarter}` : '';
+}
+function salesTaxYearFromDate(value) {
+  const match = String(value || '').match(/^(\d{4})-/);
+  return match ? match[1] : '';
+}
+function salesTaxQuarterLabel(quarter) {
+  const quarterNumber = Number(String(quarter).replace(/^Q/, ''));
+  const canonicalPeriod = state.salesTaxPeriods.find(period => Number(period.quarter) === quarterNumber);
+  const monthRange = String(canonicalPeriod?.label || '').match(/\(([^)]+)\)$/)?.[1]?.replace('-', '–') || '';
+  return monthRange ? `Q${quarterNumber} — ${monthRange}` : `Q${quarterNumber}`;
+}
+function salesTaxQuarterOptions(selected='') {
+  return SALES_TAX_QUARTERS.map(quarter => {
+    const key = `Q${quarter}`;
+    return `<option value="${key}" ${String(selected)===key?'selected':''}>${escapeHtml(salesTaxQuarterLabel(key))}</option>`;
+  }).join('');
 }
 function configureLedgerForm(form, opts={}) {
   const kind = form.elements.kind;
@@ -71,7 +91,11 @@ function configureLedgerForm(form, opts={}) {
   const quoteSelect = form.elements.quote_id;
   const invoiceSelect = form.elements.invoice_id;
   const salesTaxPeriodWrap = form.querySelector('[data-ledger-sales-tax-period-wrap]');
-  const salesTaxPeriodSelect = form.elements.sales_tax_period;
+  const salesTaxQuarterSelect = form.elements.sales_tax_quarter;
+  const salesTaxYearInput = form.elements.sales_tax_year;
+  const salesTaxPeriodInput = form.elements.sales_tax_period;
+  const entryDateInput = form.elements.entry_date;
+  let followEntryDateYear = !salesTaxPeriodInput?.value;
   const selectedCategory = opts.selectedCategory || category?.value || '';
   function refreshCategories(preserve=true) {
     if (!category || !kind) return;
@@ -97,14 +121,35 @@ function configureLedgerForm(form, opts={}) {
   function refreshSalesTaxPeriodVisibility() {
     const active = normalizeLedgerKind(kind?.value) === 'expense' && category?.value === SALES_TAX_PERIOD_CATEGORY;
     salesTaxPeriodWrap?.classList.toggle('hidden', !active);
-    if (salesTaxPeriodSelect) {
-      salesTaxPeriodSelect.required = active;
-      salesTaxPeriodSelect.disabled = !active;
-      if (!active) salesTaxPeriodSelect.value = '';
+    [salesTaxQuarterSelect, salesTaxYearInput].forEach(control => {
+      if (!control) return;
+      control.required = active;
+      control.disabled = !active;
+    });
+    if (!active) {
+      if (salesTaxQuarterSelect) salesTaxQuarterSelect.value = '';
+      if (salesTaxYearInput) salesTaxYearInput.value = salesTaxYearFromDate(entryDateInput?.value);
+      if (salesTaxPeriodInput) salesTaxPeriodInput.value = '';
+      followEntryDateYear = true;
+      return;
     }
+    if (salesTaxYearInput && !salesTaxYearInput.value) salesTaxYearInput.value = salesTaxYearFromDate(entryDateInput?.value);
+    if (salesTaxPeriodInput) salesTaxPeriodInput.value = composeSalesTaxPeriod(salesTaxYearInput?.value, salesTaxQuarterSelect?.value);
   }
   kind?.addEventListener('change', () => { refreshCategories(false); refreshSalesTaxPeriodVisibility(); });
   category?.addEventListener('change', refreshSalesTaxPeriodVisibility);
+  salesTaxQuarterSelect?.addEventListener('change', () => {
+    if (salesTaxPeriodInput) salesTaxPeriodInput.value = composeSalesTaxPeriod(salesTaxYearInput?.value, salesTaxQuarterSelect.value);
+  });
+  salesTaxYearInput?.addEventListener('input', () => {
+    followEntryDateYear = false;
+    if (salesTaxPeriodInput) salesTaxPeriodInput.value = composeSalesTaxPeriod(salesTaxYearInput.value, salesTaxQuarterSelect?.value);
+  });
+  entryDateInput?.addEventListener('change', () => {
+    if (!followEntryDateYear || !salesTaxYearInput) return;
+    salesTaxYearInput.value = salesTaxYearFromDate(entryDateInput.value);
+    if (salesTaxPeriodInput) salesTaxPeriodInput.value = composeSalesTaxPeriod(salesTaxYearInput.value, salesTaxQuarterSelect?.value);
+  });
   function refreshLinkedSelectors() {
     const clientId = clientSelect?.value || opts.clientId || '';
     const projectId = projectSelect?.value || '';
@@ -137,7 +182,10 @@ function normalizeLedgerPayload(payload) {
     numOrDelete(payload, 'invoice_id');
   }
   numOrDelete(payload, 'receipt_id');
-  if (payload.category !== SALES_TAX_PERIOD_CATEGORY) delete payload.sales_tax_period;
+  if (payload.category === SALES_TAX_PERIOD_CATEGORY) payload.sales_tax_period = composeSalesTaxPeriod(payload.sales_tax_year, payload.sales_tax_quarter);
+  else delete payload.sales_tax_period;
+  delete payload.sales_tax_quarter;
+  delete payload.sales_tax_year;
   return payload;
 }
 
@@ -2570,9 +2618,11 @@ function ledgerEditorShellHtml({editing=null, formId='ledgerForm', scopedClientI
   const projectId = editing?.project_id || scopedProjectId || '';
   const kind = normalizeLedgerKind(presetKind || editing?.kind || 'income');
   const businessType = editing?.business_type || 'client';
+  const taxPeriod = parseSalesTaxPeriod(editing?.sales_tax_period);
+  const taxYear = taxPeriod.year || salesTaxYearFromDate(editing?.entry_date || todayIso());
   const taxPeriodHelp = editing?.category === SALES_TAX_PERIOD_CATEGORY && !editing?.sales_tax_period
     ? 'Tax Period: Unassigned. Select the quarter this payment covered before saving.'
-    : 'The transaction date stays unchanged; this quarter controls which NY sales-tax reserve is reduced.';
+    : 'The transaction date stays unchanged; these controls determine which NY sales-tax reserve is reduced.';
   const closeId = closeButtonId ? ` id="${closeButtonId}"` : '';
   const cancelId = cancelButtonId ? ` id="${cancelButtonId}"` : '';
   const clientField = scopedClientId
@@ -2586,7 +2636,12 @@ function ledgerEditorShellHtml({editing=null, formId='ledgerForm', scopedClientI
           <label class="ledger-field"><span>Account Type</span><select name="kind"><option value="income">Income</option><option value="cogs">Cost of Goods Sold</option><option value="expense">Expenses</option></select></label>
           <label class="ledger-field"><span>Category</span><select name="category" required><option value="">Select category...</option></select></label>
           <label class="ledger-field"><span>Amount</span><input name="amount" type="number" step="0.01" min="0" inputmode="decimal" required value="${escapeHtml(editing?.amount ?? '')}"></label>
-          <label class="ledger-field ledger-sales-tax-period-field hidden" data-ledger-sales-tax-period-wrap><span>Applies To NY Sales Tax Quarter</span><select name="sales_tax_period" disabled><option value="">Select quarter...</option>${salesTaxPeriodOptions(editing?.sales_tax_period || '')}</select><small>${escapeHtml(taxPeriodHelp)}</small></label>
+          <div class="ledger-sales-tax-period-fields hidden" data-ledger-sales-tax-period-wrap>
+            <label class="ledger-field ledger-sales-tax-quarter-field"><span>NY Sales Tax Quarter</span><select name="sales_tax_quarter" disabled><option value="">Select quarter...</option>${salesTaxQuarterOptions(taxPeriod.quarter)}</select></label>
+            <label class="ledger-field ledger-sales-tax-year-field"><span>Tax Year</span><input name="sales_tax_year" type="number" min="2000" max="2100" step="1" inputmode="numeric" disabled value="${escapeHtml(taxYear)}"></label>
+            <input name="sales_tax_period" type="hidden" value="${escapeHtml(editing?.sales_tax_period || '')}">
+            <small class="ledger-sales-tax-period-help">${escapeHtml(taxPeriodHelp)}</small>
+          </div>
           <label class="ledger-field ledger-description-field"><span>Description</span><textarea name="description" rows="4" placeholder="What was this transaction for?">${escapeHtml(editing?.description)}</textarea></label>
         </div></section>
         <section class="ledger-editor-section" aria-labelledby="${formId}ContextHeading"><div class="ledger-editor-section-head"><span>2</span><div><h3 id="${formId}ContextHeading">Business Context</h3><p>Classify administrative activity or connect client work to its records.</p></div></div><div class="ledger-editor-grid ledger-context-grid">

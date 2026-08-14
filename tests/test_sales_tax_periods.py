@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from contextlib import closing
 from datetime import date
@@ -92,15 +93,21 @@ def test_ny_sales_tax_period_source_and_frontend_characterization(authed):
     javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
     ledger_css = (static_dir / "phase6-ledger.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in html
-    assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-periods" in html
-    assert "forgeops-v2-sales-tax-periods" in service_worker
-    assert "/static/js/app.js?v=0.8.12-sales-tax-periods" in service_worker
-    assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-periods" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-period-controls" in html
+    assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in html
+    assert "forgeops-v2-sales-tax-period-controls" in service_worker
+    assert "/static/js/app.js?v=0.8.12-sales-tax-period-controls" in service_worker
+    assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in service_worker
     for marker in [
-        "Applies To NY Sales Tax Quarter",
+        "NY Sales Tax Quarter",
+        'name="sales_tax_quarter"',
+        'name="sales_tax_year"',
+        'name="sales_tax_period" type="hidden"',
         "sales_tax_period",
         "data-ledger-sales-tax-period-wrap",
+        "parseSalesTaxPeriod(editing?.sales_tax_period)",
+        "composeSalesTaxPeriod(payload.sales_tax_year, payload.sales_tax_quarter)",
+        "followEntryDateYear = false",
         "Tax period unassigned",
         "Applies to ${escapeHtml(salesTaxPeriodLabel",
         "/api/reports/ny-sales-tax-periods",
@@ -109,7 +116,13 @@ def test_ny_sales_tax_period_source_and_frontend_characterization(authed):
         "Sales tax payments applied to this quarter",
     ]:
         assert marker in javascript
-    assert ".ledger-sales-tax-period-field" in ledger_css
+    quarter_values = re.search(r"const SALES_TAX_QUARTERS = \[([^\]]+)\]", javascript)
+    assert quarter_values
+    assert [int(value.strip()) for value in quarter_values.group(1).split(",")] == [1, 2, 3, 4]
+    assert 'select name="sales_tax_period"' not in javascript
+    assert "salesTaxPeriodOptions" not in javascript
+    assert ".ledger-sales-tax-period-fields" in ledger_css
+    assert ".ledger-sales-tax-year-field" in ledger_css
     assert ".ledger-tax-period-unassigned" in ledger_css
 
 
@@ -124,6 +137,10 @@ def test_sales_tax_period_create_read_edit_clear_and_validation(authed):
     edited = authed.patch(f"/api/ledger/{entry_id}", json={"sales_tax_period": "2026-Q3"})
     assert edited.status_code == 200
     assert edited.json()["sales_tax_period"] == "2026-Q3"
+
+    changed_year = authed.patch(f"/api/ledger/{entry_id}", json={"sales_tax_period": "2025-Q2"})
+    assert changed_year.status_code == 200
+    assert changed_year.json()["sales_tax_period"] == "2025-Q2"
 
     invalid_shape = authed.post("/api/ledger", json=_ledger_payload(sales_tax_period="2026-Q5"))
     assert invalid_shape.status_code == 422
