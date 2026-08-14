@@ -1,0 +1,87 @@
+/* ForgeOps printable Client and Project packet surfaces. */
+.packet-header-action { white-space: nowrap; }
+
+.packet {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  color: #111827;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.packet-cover {
+  min-height: 240px;
+  padding: 22px;
+  border: 2px solid #334155;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.packet-cover-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 16px;
+  border-bottom: 3px solid #334155;
+}
+
+.packet-cover h1 { margin: 4px 0 0; font-size: 28px; line-height: 1.15; }
+.packet-business-name,
+.packet-kicker { margin: 0; color: #475569; font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.packet-admin-label { padding: 7px 10px; border: 1px solid #991b1b; border-radius: 999px; color: #991b1b; font-size: 11px; letter-spacing: .06em; white-space: nowrap; }
+.packet-cover-grid,
+.packet-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; margin-top: 18px; }
+.packet-cover-grid div,
+.packet-summary-grid div { display: grid; gap: 3px; min-width: 0; }
+.packet-cover-grid strong,
+.packet-summary-grid strong { color: #475569; font-size: 10px; letter-spacing: .055em; text-transform: uppercase; }
+.packet-cover-grid span,
+.packet-summary-grid span { white-space: pre-wrap; }
+
+.packet-section { margin-top: 24px; }
+.packet-section > h2,
+.packet-project-heading { border-bottom: 2px solid #475569; padding-bottom: 7px; }
+.packet-project-heading { margin-top: 24px; }
+.packet-project-heading h2 { margin: 3px 0; }
+.packet-project-heading p:last-child { margin: 0; color: #52627a; }
+.packet-note { margin-top: 12px; padding: 10px; border: 1px solid #cbd5e1; background: #f8fafc; }
+.packet-note p { margin: 5px 0 0; white-space: pre-wrap; }
+.packet-empty { margin-top: 24px; padding: 16px; border: 1px dashed #94a3b8; color: #475569; }
+.packet-unassigned { margin-top: 26px; }
+.packet-primary-document { break-inside: auto; page-break-inside: auto; }
+.packet-primary-document h1,
+.packet-primary-document h2,
+.packet-section > h2,
+.packet-project-heading { break-after: avoid-page; page-break-after: avoid; }
+.packet table { table-layout: fixed; }
+.packet th,
+.packet td { overflow-wrap: anywhere; }
+.packet tr { break-inside: avoid; page-break-inside: avoid; }
+.packet .total { break-inside: avoid; page-break-inside: avoid; }
+
+@media screen and (max-width: 760px) {
+  .packet-header-action { display: none; }
+}
+
+@media print {
+  html,
+  body { color-scheme: light; background: #fff !important; }
+  .packet { max-width: none; }
+  .packet-cover { break-after: page; page-break-after: always; border-radius: 0; }
+  .packet-project-group + .packet-project-group,
+  .packet-unassigned { break-before: page; page-break-before: always; }
+  .packet .page-break { break-before: page; page-break-before: always; }
+  .packet-primary-document { break-inside: auto; page-break-inside: auto; }
+  .packet-cover-heading,
+  .packet-cover-grid,
+  .packet-summary-grid,
+  .packet-note,
+  .packet .total { break-inside: avoid; page-break-inside: avoid; }
+}
+
+@media print and (max-width: 760px) {
+  .packet-cover-grid,
+  .packet-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

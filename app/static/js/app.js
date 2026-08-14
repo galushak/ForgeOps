@@ -1,3 +1,5 @@
+import { clientAdminPacketHtml, projectAdminGroupHtml, projectClientPacketHtml } from './packet-renderers.js?v=0.8.12-print-packets';
+
 const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, salesTaxPeriods: [], editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
@@ -1572,11 +1574,11 @@ async function printRecord(type, id) {
   if (type === 'ledger') return printLedger(id);
 }
 
-function printWindow(title, bodyHtml) {
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><base href="${window.location.origin}/"><style>
+function printWindow(title, bodyHtml, targetWindow=null) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><base href="${window.location.origin}/"><link rel="stylesheet" href="/static/forgeops-packets.css?v=0.8.12-print-packets"><style>
     body{font-family:Arial, sans-serif;color:#111827;margin:32px;font-size:13px} h1,h2,h3{margin:0 0 8px}.muted{color:#52627a}.banner{background:#3f4a57;color:white;font-weight:700;padding:6px 8px;margin:18px 0 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin:12px 0}.box{border:1px solid #d1d5db;padding:8px}.right{text-align:right}.total{font-weight:700;background:#eaf5fb}.print-section{break-inside:avoid;margin-top:18px}.page-break{break-before:page}table{width:100%;border-collapse:collapse;margin:0 0 14px}th{background:#4b5563;color:white;text-align:left}th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top}.terms p{margin:6px 0}.signature-line{display:inline-block;border-bottom:1px solid #111827;min-width:260px;margin-left:8px}.receipt-print-page{display:block;width:100%;max-width:760px;height:auto;margin:14px auto;border:1px solid #d1d5db;box-shadow:0 1px 3px rgba(15,23,42,.12);background:white}.receipt-original-link{font-size:12px;color:#52627a;margin-top:8px}.no-print{margin-bottom:16px;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;background:#f8fafc;cursor:pointer}@media print{.no-print,.receipt-original-link{display:none}body{margin:18mm}.page-break{break-before:page}.receipt-print-page{max-width:100%;width:100%;break-inside:avoid;page-break-inside:avoid;box-shadow:none}.receipt-page-wrapper{break-before:auto}.receipt-page-wrapper + .receipt-page-wrapper{break-before:page}}
   </style></head><body><button id="printBtn" class="no-print" type="button">Print</button>${bodyHtml}</body></html>`;
-  const win = window.open('', '_blank', 'width=900,height=1100');
+  const win = targetWindow || window.open('', '_blank', 'width=900,height=1100');
   if (!win) {
     alert('Popup blocked. Allow popups for ForgeOps to print.');
     return;
@@ -1594,6 +1596,19 @@ function printWindow(title, bodyHtml) {
   } else {
     wirePrintButton();
   }
+  return win;
+}
+
+function reservePacketPrintWindow() {
+  const win = window.open('', '_blank', 'width=900,height=1100');
+  if (!win) {
+    alert('Popup blocked. Allow popups for ForgeOps to print.');
+    return null;
+  }
+  win.document.open();
+  win.document.write('<!doctype html><html><head><title>Preparing packet…</title></head><body style="font-family:Arial,sans-serif;padding:32px">Preparing packet…</body></html>');
+  win.document.close();
+  return win;
 }
 
 
@@ -1602,7 +1617,7 @@ function defaultQuoteTerms(terms) {
 }
 
 
-async function receiptPrintSection(receiptId) {
+async function receiptPrintSection(receiptId, {pageBreak=true, heading='Receipt'} = {}) {
   if (!receiptId) return '';
   try {
     const receipt = await api(`/api/receipts/${receiptId}`);
@@ -1615,19 +1630,19 @@ async function receiptPrintSection(receiptId) {
       return `<div class="receipt-page-wrapper"><img class="receipt-print-page" src="${src}" alt="${escapeHtml(label)}"></div>`;
     }).join('');
     const preview = pageImages || `<p>Receipt preview is not available for this file type. <a href="${downloadUrl}">Download receipt</a></p>`;
-    return `<section class="print-section page-break"><h2>Receipt</h2>${meta}${preview}<p class="receipt-original-link"><a href="${downloadUrl}">Download original receipt</a></p></section>`;
+    return `<section class="print-section receipt-document ${pageBreak ? 'page-break' : ''}"><h2>${escapeHtml(heading)}</h2>${meta}${preview}<p class="receipt-original-link"><a href="${downloadUrl}">Download original receipt</a></p></section>`;
   } catch (err) {
-    return `<section class="print-section"><h2>Receipt</h2><p>Unable to load attached receipt: ${escapeHtml(err.message || 'Unknown error')}</p></section>`;
+    return `<section class="print-section receipt-document ${pageBreak ? 'page-break' : ''}"><h2>${escapeHtml(heading)}</h2><p>Unable to load attached receipt: ${escapeHtml(err.message || 'Unknown error')}</p></section>`;
   }
 }
 
-async function quotePrintSection(id, { pageBreak=false } = {}) {
+async function quotePrintSection(id, {pageBreak=false, quoteRecord=null, settingsOverride=null, clientRecord=null, projectRecord=null, heading='Associated Quote', includeApproval=false, adminNotes=false} = {}) {
   if (!id) return '';
   await preloadLookups();
-  let quote = state.quotes.find(q => Number(q.id) === Number(id));
-  if (!quote) quote = (await api('/api/quotes?page_size=100')).items.find(q => Number(q.id) === Number(id));
+  let quote = quoteRecord || state.quotes.find(q => Number(q.id) === Number(id));
+  if (!quote) quote = (await fetchAllPages('/api/quotes')).find(q => Number(q.id) === Number(id));
   if (!quote) return '<section class="print-section"><h2>Associated Quote</h2><p>Quote not found.</p></section>';
-  const settings = (await api('/api/admin/settings')).settings || {};
+  const settings = settingsOverride || (await api('/api/admin/settings')).settings || {};
   const items = (await api(`/api/quotes/${id}/line-items`)).items || [];
   const equipment = equipmentRowsFromItems(items);
   const labor = laborRowsFromItems(items);
@@ -1636,17 +1651,21 @@ async function quotePrintSection(id, { pageBreak=false } = {}) {
   const equipmentRows = equipment.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(i.description)}</td><td class="right">${Number(i.quantity || 0).toFixed(2)}</td><td class="right">${money(i.unit_price)}</td><td class="right">${money(i.line_total)}</td></tr>`).join('') || '<tr><td colspan="5">No equipment/material lines.</td></tr>';
   const laborRows = labor.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(i.description)}</td><td class="right">${Number(i.quantity || 0).toFixed(2)}</td><td class="right">${money(i.unit_price)}</td><td class="right">${money(i.line_total)}</td></tr>`).join('') || '<tr><td colspan="5">No labor lines.</td></tr>';
   const terms = defaultQuoteTerms(quoteTermsValue(quote.terms, settings.default_quote_terms)).map(t => `<p>• ${escapeHtml(t.replace(/^[-•]\s*/, ''))}</p>`).join('');
-  return `<section class="print-section ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>Associated Quote</h2><div class="grid"><div class="box"><strong>Client</strong><br>${escapeHtml(clientName(quote.client_id))}<br>${escapeHtml(projectName(quote.project_id) || '')}</div><div class="box"><strong>Quote #:</strong> ${escapeHtml(quote.quote_number)}<br><strong>Date:</strong> ${escapeHtml(quote.quote_date || '')}<br><strong>Valid Through:</strong> ${escapeHtml(quote.valid_until || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(quote.status))}</div></div><h2>${escapeHtml(quote.title || '')}</h2><div class="banner">Equipment & Materials</div><table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${equipmentRows}</tbody></table><table><tbody><tr><td>Equipment Subtotal</td><td class="right">${money(totals.equipmentSubtotal)}</td></tr><tr><td>Shipping & Freight</td><td class="right">${fee('shipping')}</td></tr><tr><td>Tariff Surcharge</td><td class="right">${fee('tariff')}</td></tr><tr><td>Sales Tax</td><td class="right">${money(totals.tax)}</td></tr><tr><td>Project Coordination & Logistics</td><td class="right">${fee('coordination')}</td></tr><tr class="total"><td>Total Equipment Cost</td><td class="right">${money(totals.equipmentTotal)}</td></tr></tbody></table><div class="banner">Labor – Installation & Configuration (Estimate)</div><table><thead><tr><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><table><tbody><tr><td>Estimated Labor Total</td><td class="right">${money(totals.laborTotal)}</td></tr><tr class="total"><td>Estimated Grand Total</td><td class="right">${money(totals.total)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div></section>`;
+  const internalNotes = adminNotes && quote.notes ? `<div class="packet-note"><strong>Internal Quote Notes</strong><p>${escapeHtml(quote.notes)}</p></div>` : '';
+  const approval = includeApproval ? '<div class="banner">Client Approval & Authorization</div><p>By signing below, the client acknowledges and agrees to the scope, pricing, and payment terms outlined in this quote.</p><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>' : '';
+  const clientLabel = clientRecord?.name || clientName(quote.client_id);
+  const projectLabel = projectRecord?.name || projectName(quote.project_id) || '';
+  return `<section class="print-section packet-primary-document ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>${escapeHtml(heading)}</h2><div class="grid"><div class="box"><strong>Client</strong><br>${escapeHtml(clientLabel)}<br>${escapeHtml(projectLabel)}</div><div class="box"><strong>Quote #:</strong> ${escapeHtml(quote.quote_number)}<br><strong>Date:</strong> ${escapeHtml(quote.quote_date || '')}<br><strong>Valid Through:</strong> ${escapeHtml(quote.valid_until || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(quote.status))}</div></div><h2>${escapeHtml(quote.title || '')}</h2><div class="banner">Equipment & Materials</div><table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${equipmentRows}</tbody></table><table><tbody><tr><td>Equipment Subtotal</td><td class="right">${money(totals.equipmentSubtotal)}</td></tr><tr><td>Shipping & Freight</td><td class="right">${fee('shipping')}</td></tr><tr><td>Tariff Surcharge</td><td class="right">${fee('tariff')}</td></tr><tr><td>Sales Tax</td><td class="right">${money(totals.tax)}</td></tr><tr><td>Project Coordination & Logistics</td><td class="right">${fee('coordination')}</td></tr><tr class="total"><td>Total Equipment Cost</td><td class="right">${money(totals.equipmentTotal)}</td></tr></tbody></table><div class="banner">Labor – Installation & Configuration (Estimate)</div><table><thead><tr><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><table><tbody><tr><td>Estimated Labor Total</td><td class="right">${money(totals.laborTotal)}</td></tr><tr class="total"><td>Estimated Grand Total</td><td class="right">${money(totals.total)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div>${internalNotes}${approval}</section>`;
 }
 
-async function invoicePrintSection(id, { pageBreak=false } = {}) {
+async function invoicePrintSection(id, {pageBreak=false, invoiceRecord=null, settingsOverride=null, clientRecord=null, projectRecord=null, laborEntries=null, heading='Associated Invoice', includeApproval=false, adminNotes=false} = {}) {
   if (!id) return '';
   await preloadLookups();
-  let invoice = state.invoices.find(i => Number(i.id) === Number(id));
-  if (!invoice) invoice = (await api('/api/invoices?page_size=100')).items.find(i => Number(i.id) === Number(id));
+  let invoice = invoiceRecord || state.invoices.find(i => Number(i.id) === Number(id));
+  if (!invoice) invoice = (await fetchAllPages('/api/invoices')).find(i => Number(i.id) === Number(id));
   if (!invoice) return '<section class="print-section"><h2>Associated Invoice</h2><p>Invoice not found.</p></section>';
-  const settings = (await api('/api/admin/settings')).settings || {};
-  const labor = (await api(`/api/labor?page_size=100`)).items.filter(l => Number(l.invoice_id) === Number(id));
+  const settings = settingsOverride || (await api('/api/admin/settings')).settings || {};
+  const labor = laborEntries || (await fetchAllPages(`/api/labor?client_id=${Number(invoice.client_id)}`)).filter(l => Number(l.invoice_id) === Number(id));
   const laborRows = labor.map(l => `<tr><td>${escapeHtml(l.work_date)}</td><td>${escapeHtml(l.service_type)}</td><td>${escapeHtml(l.notes || '')}</td><td class="right">${Number(l.hours || 0).toFixed(2)}</td><td class="right">${money(l.hourly_rate)}</td><td class="right">${money(l.line_total)}</td></tr>`).join('') || `<tr><td colspan="6">${escapeHtml(invoice.notes || 'Labor services')}</td></tr>`;
   const lineItems = invoice.line_items || [];
   const materials = lineItems.filter(item => item.kind === 'material');
@@ -1656,7 +1675,11 @@ async function invoicePrintSection(id, { pageBreak=false } = {}) {
   const materialsTotal = materials.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
   const laborTotal = labor.reduce((sum, l) => sum + Number(l.line_total || 0), 0);
   const terms = invoiceTermsValue(invoice.terms, settings.default_invoice_terms).split('\n').filter(Boolean).map(t => `<p>• ${escapeHtml(t.replace(/^[-•]\s*/, ''))}</p>`).join('');
-  return `<section class="print-section ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>Associated Invoice</h2><div class="grid"><div class="box"><strong>Bill To</strong><br>${escapeHtml(clientName(invoice.client_id))}<br>${escapeHtml(projectName(invoice.project_id) || '')}</div><div class="box"><strong>Invoice #:</strong> ${escapeHtml(invoice.invoice_number)}<br><strong>Date:</strong> ${escapeHtml(invoice.invoice_date || '')}<br><strong>Due:</strong> ${escapeHtml(invoice.due_date || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(invoice.status))}</div></div><h2>${escapeHtml(invoice.title || 'Labor Services')}</h2><div class="banner">Labor Summary</div><table><thead><tr><th>Date</th><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><div class="banner">Additional Parts & Materials</div><table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${materialRows}</tbody></table><div class="banner">Credits / Payments Applied</div><table><thead><tr><th>Type</th><th>Description</th><th>Amount</th></tr></thead><tbody>${creditRows}</tbody></table><table><tbody><tr><td>Labor Total</td><td class="right">${money(laborTotal)}</td></tr><tr><td>Parts / Materials</td><td class="right">${money(materialsTotal)}</td></tr><tr><td>Sales Tax</td><td class="right">${money(invoice.tax_amount)}</td></tr><tr class="total"><td>Invoice Total</td><td class="right">${money(invoice.total_amount)}</td></tr><tr><td>Credits / Payments Applied</td><td class="right">-${money(invoice.amount_paid)}</td></tr><tr class="total"><td>Balance Due</td><td class="right">${money(invoice.balance_due)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div></section>`;
+  const internalNotes = adminNotes && invoice.notes ? `<div class="packet-note"><strong>Internal Invoice Notes</strong><p>${escapeHtml(invoice.notes)}</p></div>` : '';
+  const approval = includeApproval ? '<div class="banner">Client Approval & Acknowledgment</div><p>Client Name:<span class="signature-line"></span></p><p>Signature:<span class="signature-line"></span></p><p>Date:<span class="signature-line"></span></p>' : '';
+  const clientLabel = clientRecord?.name || clientName(invoice.client_id);
+  const projectLabel = projectRecord?.name || projectName(invoice.project_id) || '';
+  return `<section class="print-section packet-primary-document ${pageBreak ? 'page-break' : ''}"><h1>${escapeHtml(settings.company_name || 'Forged Systems LLC')}</h1><h2>${escapeHtml(heading)}</h2><div class="grid"><div class="box"><strong>Bill To</strong><br>${escapeHtml(clientLabel)}<br>${escapeHtml(projectLabel)}</div><div class="box"><strong>Invoice #:</strong> ${escapeHtml(invoice.invoice_number)}<br><strong>Date:</strong> ${escapeHtml(invoice.invoice_date || '')}<br><strong>Due:</strong> ${escapeHtml(invoice.due_date || '')}<br><strong>Status:</strong> ${escapeHtml(statusLabel(invoice.status))}</div></div><h2>${escapeHtml(invoice.title || 'Labor Services')}</h2><div class="banner">Labor Summary</div><table><thead><tr><th>Date</th><th>Service</th><th>Description</th><th>Hours</th><th>Rate</th><th>Line Total</th></tr></thead><tbody>${laborRows}</tbody></table><div class="banner">Additional Parts & Materials</div><table><thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Line Total</th></tr></thead><tbody>${materialRows}</tbody></table><div class="banner">Credits / Payments Applied</div><table><thead><tr><th>Type</th><th>Description</th><th>Amount</th></tr></thead><tbody>${creditRows}</tbody></table><table><tbody><tr><td>Labor Total</td><td class="right">${money(laborTotal)}</td></tr><tr><td>Parts / Materials</td><td class="right">${money(materialsTotal)}</td></tr><tr><td>Sales Tax</td><td class="right">${money(invoice.tax_amount)}</td></tr><tr class="total"><td>Invoice Total</td><td class="right">${money(invoice.total_amount)}</td></tr><tr><td>Credits / Payments Applied</td><td class="right">-${money(invoice.amount_paid)}</td></tr><tr class="total"><td>Balance Due</td><td class="right">${money(invoice.balance_due)}</td></tr></tbody></table><div class="banner">Payment Terms & Conditions</div><div class="terms">${terms}</div>${internalNotes}${approval}</section>`;
 }
 
 async function printQuote(id) {
@@ -1724,6 +1747,249 @@ async function printLedger(id) {
       <div class="box"><strong>Receipt</strong><br>${entry.receipt_id ? `Attached #${Number(entry.receipt_id)}` : '—'}</div>
     </div><div class="box"><strong>Description / Notes</strong><br>${escapeHtml(entry.description || '—')}</div></section>${linkedDocs}`;
   printWindow(`Ledger Entry ${entry.entry_date} ${entry.category}`, body);
+}
+
+async function fetchAllPages(path, {pageSize=100} = {}) {
+  const url = new URL(path, window.location.origin);
+  const items = [];
+  let page = 1;
+  let total = Number.POSITIVE_INFINITY;
+  while (items.length < total) {
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('page_size', String(pageSize));
+    const response = await api(`${url.pathname}${url.search}`);
+    const batch = Array.isArray(response.items) ? response.items : [];
+    items.push(...batch);
+    total = Number(response.meta?.total ?? items.length);
+    if (!batch.length || items.length >= total) break;
+    page += 1;
+  }
+  return items;
+}
+
+function packetGeneratedAt() {
+  return new Intl.DateTimeFormat(undefined, {dateStyle:'medium', timeStyle:'short'}).format(new Date());
+}
+
+function packetSort(items, dateKey, numberKey='id') {
+  return [...items].sort((left, right) => String(left?.[dateKey] || '').localeCompare(String(right?.[dateKey] || '')) || String(left?.[numberKey] || '').localeCompare(String(right?.[numberKey] || ''), undefined, {numeric:true}));
+}
+
+function uniquePacketRecords(items) {
+  return [...new Map(items.filter(item => item?.id).map(item => [Number(item.id), item])).values()];
+}
+
+function packetRelatedReceipts(receipts, {clientId=null, projectId=null, quotes=[], invoices=[], ledger=[]} = {}) {
+  const quoteIds = new Set(quotes.map(item => Number(item.id)));
+  const invoiceIds = new Set(invoices.map(item => Number(item.id)));
+  const ledgerIds = new Set(ledger.map(item => Number(item.id)));
+  const attachedReceiptIds = new Set(ledger.map(item => Number(item.receipt_id)).filter(Boolean));
+  return uniquePacketRecords(receipts.filter(receipt => {
+    const receiptId = Number(receipt.id);
+    const linkedId = Number(receipt.linked_id);
+    return attachedReceiptIds.has(receiptId)
+      || (clientId && receipt.linked_type === 'client' && linkedId === Number(clientId))
+      || (projectId && receipt.linked_type === 'project' && linkedId === Number(projectId))
+      || (receipt.linked_type === 'quote' && quoteIds.has(linkedId))
+      || (receipt.linked_type === 'invoice' && invoiceIds.has(linkedId))
+      || (receipt.linked_type === 'ledger_entry' && ledgerIds.has(linkedId));
+  }));
+}
+
+async function loadProjectPacketData(projectId, {includeAdmin=false} = {}) {
+  await preloadLookups();
+  const project = state.projects.find(item => Number(item.id) === Number(projectId)) || (await fetchAllPages('/api/projects')).find(item => Number(item.id) === Number(projectId));
+  if (!project) throw new Error('Project not found.');
+  const client = state.clients.find(item => Number(item.id) === Number(project.client_id)) || await api(`/api/clients/${project.client_id}`);
+  const settings = (await api('/api/admin/settings')).settings || {};
+  const [quotes, invoices, labor] = await Promise.all([
+    fetchAllPages(`/api/quotes?project_id=${Number(projectId)}`),
+    fetchAllPages(`/api/invoices?project_id=${Number(projectId)}`),
+    fetchAllPages(`/api/labor?project_id=${Number(projectId)}`),
+  ]);
+  const data = {
+    settings,
+    client,
+    project,
+    quotes: packetSort(quotes, 'quote_date', 'quote_number'),
+    invoices: packetSort(invoices, 'invoice_date', 'invoice_number'),
+    labor: packetSort(labor, 'work_date'),
+    ledger: [],
+    receipts: [],
+  };
+  if (includeAdmin) {
+    const [ledger, allReceipts] = await Promise.all([
+      fetchAllPages(`/api/ledger?project_id=${Number(projectId)}`),
+      fetchAllPages('/api/receipts'),
+    ]);
+    data.ledger = packetSort(ledger, 'entry_date');
+    data.receipts = packetRelatedReceipts(allReceipts, {projectId, quotes:data.quotes, invoices:data.invoices, ledger:data.ledger});
+  }
+  return data;
+}
+
+async function loadClientAdminPacketData(clientId) {
+  await preloadLookups();
+  const client = state.clients.find(item => Number(item.id) === Number(clientId)) || await api(`/api/clients/${clientId}`);
+  const settings = (await api('/api/admin/settings')).settings || {};
+  const [projects, quotes, invoices, labor, allLedger, allReceipts] = await Promise.all([
+    fetchAllPages(`/api/projects?client_id=${Number(clientId)}`),
+    fetchAllPages(`/api/quotes?client_id=${Number(clientId)}`),
+    fetchAllPages(`/api/invoices?client_id=${Number(clientId)}`),
+    fetchAllPages(`/api/labor?client_id=${Number(clientId)}`),
+    fetchAllPages('/api/ledger'),
+    fetchAllPages('/api/receipts'),
+  ]);
+  const projectIds = new Set(projects.map(project => Number(project.id)));
+  const ledger = allLedger.filter(entry => Number(entry.client_id) === Number(clientId) || (entry.project_id && projectIds.has(Number(entry.project_id))));
+  return {
+    settings,
+    client,
+    projects: [...projects].sort((left, right) => String(left.start_date || left.created_at || '').localeCompare(String(right.start_date || right.created_at || '')) || String(left.name || '').localeCompare(String(right.name || ''))),
+    quotes: packetSort(quotes, 'quote_date', 'quote_number'),
+    invoices: packetSort(invoices, 'invoice_date', 'invoice_number'),
+    labor: packetSort(labor, 'work_date'),
+    ledger: packetSort(ledger, 'entry_date'),
+    receipts: allReceipts,
+  };
+}
+
+function adminProjectSummaryHtml({project, client, quotes, invoices, labor, ledger, receipts}) {
+  return `<section class="packet-section packet-summary"><h2>Project Summary</h2><div class="packet-summary-grid">
+    <div><strong>Client</strong><span>${escapeHtml(client?.name || '—')}</span></div><div><strong>Project</strong><span>${escapeHtml(project?.name || '—')}</span></div><div><strong>Status</strong><span>${escapeHtml(statusLabel(project?.status))}</span></div><div><strong>Site</strong><span>${escapeHtml(project?.site_address || '—')}</span></div>
+    <div><strong>Start</strong><span>${escapeHtml(project?.start_date || '—')}</span></div><div><strong>Completed</strong><span>${escapeHtml(project?.completed_date || '—')}</span></div><div><strong>Created</strong><span>${escapeHtml(project?.created_at || '—')}</span></div><div><strong>Updated</strong><span>${escapeHtml(project?.updated_at || '—')}</span></div>
+    <div><strong>Quotes</strong><span>${quotes.length}</span></div><div><strong>Invoices</strong><span>${invoices.length}</span></div><div><strong>Labor Entries</strong><span>${labor.length}</span></div><div><strong>Ledger / Receipts</strong><span>${ledger.length} / ${receipts.length}</span></div>
+  </div>${project?.notes ? `<div class="packet-note"><strong>Internal Project Notes</strong><p>${escapeHtml(project.notes)}</p></div>` : ''}</section>`;
+}
+
+function adminClientSummaryHtml(client) {
+  return `<section class="packet-section packet-summary"><h2>Client Summary</h2><div class="packet-summary-grid">
+    <div><strong>Client</strong><span>${escapeHtml(client?.name || '—')}</span></div><div><strong>Status</strong><span>${client?.is_active ? 'Active' : 'Inactive'}</span></div><div><strong>Primary Contact</strong><span>${escapeHtml(client?.contact_name || '—')}</span></div><div><strong>Email</strong><span>${escapeHtml(client?.email || '—')}</span></div><div><strong>Phone</strong><span>${escapeHtml(client?.phone || '—')}</span></div><div><strong>Site Address</strong><span>${escapeHtml(client?.site_address || '—')}</span></div><div><strong>Billing Address</strong><span>${escapeHtml(client?.billing_address || '—')}</span></div><div><strong>Updated</strong><span>${escapeHtml(client?.updated_at || '—')}</span></div>
+  </div>${client?.notes ? `<div class="packet-note"><strong>Internal Client Notes</strong><p>${escapeHtml(client.notes)}</p></div>` : ''}</section>`;
+}
+
+function adminLaborPacketSection(labor, heading='Labor') {
+  if (!labor.length) return '';
+  const rows = labor.map(entry => `<tr><td>${escapeHtml(entry.work_date || '')}</td><td>${escapeHtml(statusLabel(entry.status))}</td><td>${escapeHtml(entry.service_type || '')}<br><span class="muted">${escapeHtml(entry.notes || '')}</span></td><td class="right">${Number(entry.hours || 0).toFixed(2)}</td><td class="right">${money(entry.hourly_rate)}</td><td class="right">${money(entry.line_total)}</td><td>${entry.is_invoiced ? `Invoiced${entry.invoice_number ? ` — ${escapeHtml(entry.invoice_number)}` : ''}` : 'Uninvoiced'}</td></tr>`).join('');
+  return `<section class="packet-section page-break"><h2>${escapeHtml(heading)}</h2><table><thead><tr><th>Date</th><th>Status</th><th>Service / Notes</th><th>Hours</th><th>Rate</th><th>Value</th><th>Billing</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+}
+
+function adminLedgerPacketSection(ledger, quotes, invoices, heading='Ledger') {
+  if (!ledger.length) return '';
+  const quoteMap = new Map(quotes.map(item => [Number(item.id), item]));
+  const invoiceMap = new Map(invoices.map(item => [Number(item.id), item]));
+  const rows = ledger.map(entry => `<tr><td>${escapeHtml(entry.entry_date || '')}</td><td>${escapeHtml(ledgerKindLabel(entry.kind))}</td><td>${escapeHtml(entry.category || '')}<br><span class="muted">${escapeHtml(entry.description || '')}</span></td><td class="right">${money(entry.amount)}</td><td>${entry.quote_id ? escapeHtml(quoteMap.get(Number(entry.quote_id))?.quote_number || `Quote #${entry.quote_id}`) : '—'}</td><td>${entry.invoice_id ? escapeHtml(invoiceMap.get(Number(entry.invoice_id))?.invoice_number || `Invoice #${entry.invoice_id}`) : '—'}</td><td>${entry.receipt_id ? 'Attached' : 'None'}</td><td>${escapeHtml(salesTaxPeriodLabel(entry.sales_tax_period) || '—')}</td></tr>`).join('');
+  return `<section class="packet-section page-break"><h2>${escapeHtml(heading)}</h2><table><thead><tr><th>Date</th><th>Account Type</th><th>Category / Description</th><th>Amount</th><th>Quote</th><th>Invoice</th><th>Receipt</th><th>Sales Tax Period</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+}
+
+async function adminReceiptPacketSections(receipts) {
+  const sorted = [...uniquePacketRecords(receipts)].sort((left, right) => String(left.receipt_date || left.uploaded_at || '').localeCompare(String(right.receipt_date || right.uploaded_at || '')) || Number(left.id) - Number(right.id));
+  return Promise.all(sorted.map(receipt => receiptPrintSection(receipt.id, {heading:`Receipt / Documentation — ${receipt.original_filename || `Receipt ${receipt.id}`}`})));
+}
+
+async function projectQuotePacketSections(data, {clientCopy=false} = {}) {
+  return Promise.all(data.quotes.map(quote => quotePrintSection(quote.id, {pageBreak:true, quoteRecord:quote, settingsOverride:data.settings, clientRecord:data.client, projectRecord:data.project, heading:'Quote', includeApproval:clientCopy, adminNotes:!clientCopy})));
+}
+
+async function projectInvoicePacketSections(data, {clientCopy=false} = {}) {
+  return Promise.all(data.invoices.map(invoice => invoicePrintSection(invoice.id, {pageBreak:true, invoiceRecord:invoice, settingsOverride:data.settings, clientRecord:data.client, projectRecord:data.project, laborEntries:data.labor.filter(entry => Number(entry.invoice_id) === Number(invoice.id)), heading:'Invoice', includeApproval:clientCopy, adminNotes:!clientCopy})));
+}
+
+async function renderProjectAdminGroup(data, {includeCover=false} = {}) {
+  const [quoteSections, invoiceSections, receiptSections] = await Promise.all([
+    projectQuotePacketSections(data),
+    projectInvoicePacketSections(data),
+    adminReceiptPacketSections(data.receipts),
+  ]);
+  return projectAdminGroupHtml({
+    businessName:data.settings.company_name,
+    client:data.client,
+    project:{...data.project, status:statusLabel(data.project.status)},
+    generatedAt:packetGeneratedAt(),
+    includeCover,
+    summaryHtml:adminProjectSummaryHtml(data),
+    quoteSections,
+    invoiceSections,
+    laborHtml:adminLaborPacketSection(data.labor),
+    ledgerHtml:adminLedgerPacketSection(data.ledger, data.quotes, data.invoices),
+    receiptSections,
+  });
+}
+
+async function buildProjectClientPacket(projectId) {
+  const data = await loadProjectPacketData(projectId);
+  const [quoteSections, invoiceSections] = await Promise.all([
+    projectQuotePacketSections(data, {clientCopy:true}),
+    projectInvoicePacketSections(data, {clientCopy:true}),
+  ]);
+  return projectClientPacketHtml({businessName:data.settings.company_name, client:data.client, project:{...data.project, status:statusLabel(data.project.status)}, quoteSections, invoiceSections, generatedAt:packetGeneratedAt()});
+}
+
+async function buildProjectAdminPacket(projectId) {
+  const data = await loadProjectPacketData(projectId, {includeAdmin:true});
+  return `<main class="packet packet-admin-copy" data-packet-type="project-admin-copy">${await renderProjectAdminGroup(data, {includeCover:true})}</main>`;
+}
+
+async function buildClientAdminPacket(clientId) {
+  const data = await loadClientAdminPacketData(clientId);
+  const usedReceiptIds = new Set();
+  const projectSections = [];
+  for (const project of data.projects) {
+    const quotes = data.quotes.filter(item => Number(item.project_id) === Number(project.id));
+    const invoices = data.invoices.filter(item => Number(item.project_id) === Number(project.id));
+    const labor = data.labor.filter(item => Number(item.project_id) === Number(project.id));
+    const ledger = data.ledger.filter(item => Number(item.project_id) === Number(project.id));
+    const receipts = packetRelatedReceipts(data.receipts, {projectId:project.id, quotes, invoices, ledger});
+    receipts.forEach(receipt => usedReceiptIds.add(Number(receipt.id)));
+    projectSections.push(await renderProjectAdminGroup({...data, project, quotes, invoices, labor, ledger, receipts}));
+  }
+  const unassignedQuotes = data.quotes.filter(item => !item.project_id);
+  const unassignedInvoices = data.invoices.filter(item => !item.project_id);
+  const unassignedLabor = data.labor.filter(item => !item.project_id);
+  const unassignedLedger = data.ledger.filter(item => !item.project_id && Number(item.client_id) === Number(clientId));
+  const unassignedReceipts = packetRelatedReceipts(data.receipts, {clientId, quotes:unassignedQuotes, invoices:unassignedInvoices, ledger:unassignedLedger}).filter(receipt => !usedReceiptIds.has(Number(receipt.id)));
+  const unassignedData = {...data, project:null, quotes:unassignedQuotes, invoices:unassignedInvoices, labor:unassignedLabor, ledger:unassignedLedger, receipts:unassignedReceipts};
+  const hasUnassigned = unassignedQuotes.length || unassignedInvoices.length || unassignedLabor.length || unassignedLedger.length || unassignedReceipts.length;
+  let unassignedHtml = '';
+  if (hasUnassigned) {
+    const [quoteSections, invoiceSections, receiptSections] = await Promise.all([
+      projectQuotePacketSections(unassignedData),
+      projectInvoicePacketSections(unassignedData),
+      adminReceiptPacketSections(unassignedReceipts),
+    ]);
+    unassignedHtml = `<section class="packet-unassigned page-break"><header class="packet-project-heading"><p class="packet-kicker">Client-level history</p><h2>Client-Level / Unassigned Records</h2></header>${quoteSections.join('')}${invoiceSections.join('')}${adminLaborPacketSection(unassignedLabor)}${adminLedgerPacketSection(unassignedLedger, unassignedQuotes, unassignedInvoices)}${receiptSections.join('')}</section>`;
+  }
+  return clientAdminPacketHtml({businessName:data.settings.company_name, client:data.client, generatedAt:packetGeneratedAt(), summaryHtml:adminClientSummaryHtml(data.client), projectSections, unassignedHtml});
+}
+
+async function runPacketPrint(title, buildHtml) {
+  const win = reservePacketPrintWindow();
+  if (!win) return;
+  try {
+    printWindow(title, await buildHtml(), win);
+  } catch (error) {
+    win.close();
+    throw error;
+  }
+}
+
+function printProjectClientPacket(projectId) {
+  return runPacketPrint('Project Packet — Client Copy', () => buildProjectClientPacket(projectId));
+}
+
+function printProjectAdminPacket(projectId) {
+  return runPacketPrint('Project Packet — Admin Copy', () => buildProjectAdminPacket(projectId));
+}
+
+function printClientAdminPacket(clientId) {
+  return runPacketPrint('Client Packet — Admin Copy', () => buildClientAdminPacket(clientId));
+}
+
+function openProjectPacketMenu(project) {
+  openScopedActionSheet({eyebrow:'Print packet', title:`Print ${project.name}`, subtitle:'Choose the audience for this Project packet.', actions:[
+    {label:'Client Copy', description:'Quotes and Invoices only; safe to give to the Client.', run:() => printProjectClientPacket(project.id)},
+    {label:'Admin Copy', description:'Complete internal record with Labor, Ledger, and receipts.', run:() => printProjectAdminPacket(project.id)},
+  ]});
 }
 
 function attachPrintActions(scope=root) {
@@ -1978,7 +2244,7 @@ function openScopedActionSheet({eyebrow='Add to record', title, subtitle='', act
   wrapper.setAttribute('role', 'dialog');
   wrapper.setAttribute('aria-modal', 'true');
   wrapper.setAttribute('aria-labelledby', 'scopedActionTitle');
-  wrapper.innerHTML = `<section class="scoped-action-sheet"><header><div><p class="sheet-eyebrow">${escapeHtml(eyebrow)}</p><h2 id="scopedActionTitle">${escapeHtml(title)}</h2>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}</div><button class="sheet-close" type="button" data-scoped-close aria-label="Close add menu">×</button></header><div class="scoped-action-grid">${actions.map((action, index) => `<button type="button" data-scoped-action="${index}"><strong>${escapeHtml(action.label)}</strong><span>${escapeHtml(action.description || '')}</span></button>`).join('')}</div></section>`;
+  wrapper.innerHTML = `<section class="scoped-action-sheet"><header><div><p class="sheet-eyebrow">${escapeHtml(eyebrow)}</p><h2 id="scopedActionTitle">${escapeHtml(title)}</h2>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}</div><button class="sheet-close" type="button" data-scoped-close aria-label="Close action menu">×</button></header><div class="scoped-action-grid">${actions.map((action, index) => `<button type="button" data-scoped-action="${index}"><strong>${escapeHtml(action.label)}</strong><span>${escapeHtml(action.description || '')}</span></button>`).join('')}</div></section>`;
   const close = () => {
     document.removeEventListener('keydown', onKeydown);
     wrapper.remove();
@@ -2255,10 +2521,11 @@ async function renderClientDetail(clientId, tab=state.clientDetailTab || 'overvi
     ledger: `<section class="panel"><div class="panel-heading"><h2>Ledger</h2><strong>Balance ${money(revenue - expenses)}</strong></div>${adaptiveRecordList(['Date','Entry','Project','Amount','Receipt','Actions'], ledgerRows, 'No ledger entries for this client yet.', 'client-related-list')}</section>`,
   };
 
-  root.innerHTML = `<div class="detail-header hub-header"><button class="ghost" id="backToClients" type="button">← Clients</button><div class="detail-title"><div class="hub-title-line"><h2>${escapeHtml(client.name)}</h2><span class="status ${client.is_active ? '' : 'muted-status'}">${client.is_active ? 'Active' : 'Inactive'}</span></div><div class="hub-contact-line"><span>${escapeHtml(client.contact_name || 'No primary contact')}</span>${client.email ? contactEmail(client.email) : ''}${client.phone ? contactPhone(client.phone) : ''}</div><p>${escapeHtml(client.site_address || 'No primary site address')}</p></div><div class="hub-header-actions"><button class="ghost" id="editClientDetail" type="button">Edit</button><button class="primary" id="addClientDetail" type="button">+ Add</button></div></div>
+  root.innerHTML = `<div class="detail-header hub-header"><button class="ghost" id="backToClients" type="button">← Clients</button><div class="detail-title"><div class="hub-title-line"><h2>${escapeHtml(client.name)}</h2><span class="status ${client.is_active ? '' : 'muted-status'}">${client.is_active ? 'Active' : 'Inactive'}</span></div><div class="hub-contact-line"><span>${escapeHtml(client.contact_name || 'No primary contact')}</span>${client.email ? contactEmail(client.email) : ''}${client.phone ? contactPhone(client.phone) : ''}</div><p>${escapeHtml(client.site_address || 'No primary site address')}</p></div><div class="hub-header-actions"><button class="ghost packet-header-action" id="printClientAdminPacket" type="button">Print Admin Packet</button><button class="ghost" id="editClientDetail" type="button">Edit</button><button class="primary" id="addClientDetail" type="button">+ Add</button></div></div>
     <div class="tabs hub-tabs detail-tab-grid client-detail-tabs" role="tablist" aria-label="Client sections">${detailTabButton('client', tab, 'overview','Overview')}${detailTabButton('client', tab, 'projects',`Projects (${projects.length})`)}${detailTabButton('client', tab, 'quotes',`Quotes (${quotes.length})`)}${detailTabButton('client', tab, 'invoices',`Invoices (${invoices.length})`)}${detailTabButton('client', tab, 'labor',`Labor (${labor.length})`)}${detailTabButton('client', tab, 'ledger',`Ledger (${ledger.length})`)}</div>${tabs[tab] || overviewHtml}`;
 
   backToClients.onclick = () => loadPage('clients');
+  root.querySelector('#printClientAdminPacket').onclick = () => printClientAdminPacket(clientId);
   editClientDetail.onclick = () => renderClients(clientId, clientId);
   addClientDetail.onclick = () => openScopedActionSheet({title:`Add to ${client.name}`, subtitle:'The client is already selected in each form.', actions:[
     {label:'New Project', description:'Create a project for this client.', run:() => openClientQuickModal(clientId, 'projects')},
@@ -2267,6 +2534,7 @@ async function renderClientDetail(clientId, tab=state.clientDetailTab || 'overvi
     {label:'Add Labor', description:'Log billable work.', run:() => openClientQuickModal(clientId, 'labor')},
     {label:'Add Expense', description:'Add a client expense.', run:() => openClientQuickModal(clientId, 'ledger', null, {ledgerKind:'expense'})},
     {label:'Ledger Entry', description:'Add income, COGS, or an expense.', run:() => openClientQuickModal(clientId, 'ledger')},
+    {label:'Print Admin Packet', description:'Print the complete internal Client history.', run:() => printClientAdminPacket(clientId)},
   ]});
   root.querySelectorAll('[data-client-tab]').forEach(button => button.addEventListener('click', () => renderClientDetail(clientId, button.dataset.clientTab)));
   attachRecordOpen('.client-related-list [data-related-type][data-related-id]', row => {
@@ -2414,18 +2682,21 @@ async function renderProjectDetail(projectId, tab=state.projectDetailTab || 'ove
     ledger: `<section class="panel"><div class="panel-heading"><h2>Ledger</h2><strong>Balance ${money(revenue - expenses)}</strong></div>${adaptiveRecordList(['Date','Entry','Amount','Receipt','Actions'], ledgerRows, 'No ledger entries for this project yet.', 'project-related-list')}</section>`,
   };
 
-  root.innerHTML = `<div class="detail-header hub-header"><button class="ghost" id="backToProjects" type="button">← Projects</button><div class="detail-title"><div class="hub-title-line"><h2>${escapeHtml(project.name)}</h2><span class="status">${statusLabel(project.status)}</span></div><p><button class="link-button hub-client-link" id="projectClientLink" type="button">${escapeHtml(client?.name || `Client #${project.client_id}`)}</button>${project.site_address ? ` · ${escapeHtml(project.site_address)}` : ''}</p><div class="hub-meta-line"><span>Start ${shortDate(project.start_date)}</span>${project.completed_date ? `<span>Completed ${shortDate(project.completed_date)}</span>` : ''}</div></div><div class="hub-header-actions"><button class="ghost" id="editProjectDetail" type="button">Edit</button><button class="primary" id="addProjectDetail" type="button">+ Add</button></div></div>
+  root.innerHTML = `<div class="detail-header hub-header"><button class="ghost" id="backToProjects" type="button">← Projects</button><div class="detail-title"><div class="hub-title-line"><h2>${escapeHtml(project.name)}</h2><span class="status">${statusLabel(project.status)}</span></div><p><button class="link-button hub-client-link" id="projectClientLink" type="button">${escapeHtml(client?.name || `Client #${project.client_id}`)}</button>${project.site_address ? ` · ${escapeHtml(project.site_address)}` : ''}</p><div class="hub-meta-line"><span>Start ${shortDate(project.start_date)}</span>${project.completed_date ? `<span>Completed ${shortDate(project.completed_date)}</span>` : ''}</div></div><div class="hub-header-actions"><button class="ghost packet-header-action" id="printProjectPacket" type="button">Print Project Packet</button><button class="ghost" id="editProjectDetail" type="button">Edit</button><button class="primary" id="addProjectDetail" type="button">+ Add</button></div></div>
     <div class="tabs hub-tabs detail-tab-grid project-detail-tabs" role="tablist" aria-label="Project sections">${detailTabButton('project', tab, 'overview','Overview')}${detailTabButton('project', tab, 'quotes',`Quotes (${quotes.length})`)}${detailTabButton('project', tab, 'invoices',`Invoices (${invoices.length})`)}${detailTabButton('project', tab, 'labor',`Labor (${labor.length})`)}${detailTabButton('project', tab, 'ledger',`Ledger (${ledger.length})`)}</div>${tabs[tab] || overviewHtml}`;
 
   backToProjects.onclick = () => loadPage('projects');
   projectClientLink.onclick = () => renderClientDetail(project.client_id);
   root.querySelector('#openProjectClient')?.addEventListener('click', () => renderClientDetail(project.client_id));
+  root.querySelector('#printProjectPacket').onclick = () => openProjectPacketMenu(project);
   editProjectDetail.onclick = () => renderProjects(projectId, projectId);
   addProjectDetail.onclick = () => openScopedActionSheet({title:`Add to ${project.name}`, subtitle:'The client and project are already selected.', actions:[
     {label:'Add Labor', description:'Log work against this project.', run:() => openClientQuickModal(project.client_id, 'labor', null, {projectId, returnToProject:true})},
     {label:'Add Expense', description:'Add a project expense.', run:() => openClientQuickModal(project.client_id, 'ledger', null, {projectId, returnToProject:true, ledgerKind:'expense'})},
     {label:'New Quote', description:'Create a quote for this project.', run:() => openClientQuickModal(project.client_id, 'quotes', null, {projectId, returnToProject:true})},
     {label:'New Invoice', description:'Create an invoice for this project.', run:() => openClientQuickModal(project.client_id, 'invoices', null, {projectId, returnToProject:true})},
+    {label:'Print Client Copy', description:'Print Quotes and Invoices for the Client.', run:() => printProjectClientPacket(projectId)},
+    {label:'Print Admin Copy', description:'Print the complete internal Project record.', run:() => printProjectAdminPacket(projectId)},
   ]});
   root.querySelectorAll('[data-project-tab]').forEach(button => button.addEventListener('click', () => renderProjectDetail(projectId, button.dataset.projectTab)));
   attachRecordOpen('.project-related-list [data-related-type][data-related-id]', row => {
