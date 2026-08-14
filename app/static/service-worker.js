@@ -1,8 +1,9 @@
-const CACHE_NAME = 'forgeops-v2-vendor-fees-terms-v1';
+const CACHE_NAME = 'forgeops-v2-app-dialogs-v1';
 const APP_SHELL = [
   '/',
   '/static/styles.css?v=0.8.12-phase2',
   '/static/shell.css?v=0.8.12-phase2',
+  '/static/app-dialog.css?v=0.8.12-app-dialogs',
   '/static/phase2.css?v=0.8.12-phase2-polish',
   '/static/phase3-quotes.css?v=0.8.12-vendor-fees-terms',
   '/static/phase4-invoices.css?v=0.8.12-vendor-fees-terms',
@@ -12,7 +13,8 @@ const APP_SHELL = [
   '/static/phase8-settings.css?v=0.8.12-vendor-fees-terms',
   '/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final',
   '/static/forgeops-packets.css?v=0.8.12-print-packets',
-  '/static/js/app.js?v=0.8.12-vendor-fees-terms',
+  '/static/js/app.js?v=0.8.12-app-dialogs',
+  '/static/js/app-dialog.js?v=0.8.12-app-dialogs',
   '/static/js/document-math.js?v=0.8.12-vendor-fees-terms',
   '/static/js/packet-renderers.js?v=0.8.12-print-packets',
   '/static/manifest.webmanifest',

@@ -1,0 +1,101 @@
+.app-dialog-backdrop {
+  z-index: 900;
+  padding: 1rem;
+}
+
+.app-dialog-card {
+  width: min(480px, calc(100vw - 2rem));
+  max-height: min(90vh, 620px);
+  max-height: min(90dvh, 620px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.app-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  padding: 1.15rem 1.2rem .75rem;
+}
+
+.app-dialog-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+.app-dialog-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface-muted));
+  color: var(--primary);
+  font-weight: 900;
+}
+
+.app-dialog-warning .app-dialog-icon {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.app-dialog-destructive .app-dialog-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.app-dialog-body {
+  padding: 0 1.2rem 1.2rem;
+  overflow: auto;
+}
+
+.app-dialog-message {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.app-dialog-actions {
+  justify-content: flex-end;
+  padding: 1rem 1.2rem 1.2rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.app-dialog-actions button {
+  min-width: 112px;
+  min-height: 44px;
+}
+
+.app-dialog-danger-button {
+  background: #b42318;
+  color: #fff;
+}
+
+.app-dialog-danger-button:hover,
+.app-dialog-danger-button:focus-visible {
+  background: #912018;
+}
+
+.app-dialog-actions button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+@media (max-width: 420px) {
+  .app-dialog-backdrop { padding: .5rem; }
+  .app-dialog-card { width: calc(100vw - 1rem); }
+  .app-dialog-header { padding: 1rem 1rem .7rem; }
+  .app-dialog-body { padding: 0 1rem 1rem; }
+  .app-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: .85rem 1rem 1rem;
+  }
+  .app-dialog-actions button { width: 100%; }
+}

@@ -93,10 +93,10 @@ def test_ny_sales_tax_period_source_and_frontend_characterization(authed):
     javascript = (static_dir / "js" / "app.js").read_text(encoding="utf-8")
     ledger_css = (static_dir / "phase6-ledger.css").read_text(encoding="utf-8")
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in service_worker
     for marker in [
         "NY Sales Tax Quarter",

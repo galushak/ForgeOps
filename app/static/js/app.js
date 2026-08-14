@@ -1,11 +1,26 @@
 import { clientAdminPacketHtml, projectAdminGroupHtml, projectClientPacketHtml } from './packet-renderers.js?v=0.8.12-print-packets';
 import { calculateInvoiceTotals, calculateQuoteDraftTotals, calculateQuoteTotals, isQuoteMarkupItem, QUOTE_MARKUP_NAME, quoteVendorFeeItems } from './document-math.js?v=0.8.12-vendor-fees-terms';
+import { createForgeOpsDialogController } from './app-dialog.js?v=0.8.12-app-dialogs';
 
 const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], termsTemplates: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, salesTaxPeriods: [], editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
 const messages = document.querySelector('#messages');
 const loginError = document.querySelector('#loginError');
 const setupError = document.querySelector('#setupError');
+const forgeOpsDialogs = createForgeOpsDialogController(document);
+
+function askForgeOpsDialog(options) {
+  return forgeOpsDialogs.ask(options);
+}
+
+function showForgeOpsNotice({title='ForgeOps Notice', message='', kind='info', primaryButtonText='OK'} = {}) {
+  return forgeOpsDialogs.notice({title, message, kind, primaryButtonText});
+}
+
+function showForgeOpsError(error, fallback='Unable to complete that action.') {
+  const message = String(error?.message || error || fallback);
+  return showForgeOpsNotice({title:'Unable to Complete Action', message, kind:'warning'});
+}
 const DEFAULT_QUOTE_TERMS = `Full payment for equipment is due upfront prior to ordering hardware.
 Labor is billed after work is completed and is subject to change.
 Two (2) hour minimum labor charge applies.
@@ -1094,7 +1109,14 @@ async function createInitialAccount(e) {
 async function restoreInitialBackup(e) {
   e.preventDefault();
   setupError.textContent = '';
-  if (!confirm('Restore this backup now? This only runs during initial setup.')) return;
+  const shouldRestore = await askForgeOpsDialog({
+    title: 'Restore Backup?',
+    message: 'Restore this backup now? This only runs during initial setup.',
+    kind: 'destructive',
+    primaryButtonText: 'Restore Backup',
+    cancelButtonText: 'Cancel',
+  });
+  if (!shouldRestore) return;
   const form = document.querySelector('#setupRestoreForm');
   const button = form.querySelector('button');
   button.disabled = true;
@@ -1157,7 +1179,10 @@ function closeUserModal() {
 
 async function openUserModal() {
   await refreshCurrentUser();
-  if (!state.user) { alert('Please sign in again.'); return; }
+  if (!state.user) {
+    await showForgeOpsNotice({title:'Session Expired', message:'Please sign in again.', kind:'warning'});
+    return;
+  }
   closeUserModal();
   const wrapper = document.createElement('div');
   wrapper.id = 'userProfileModal';
@@ -1195,7 +1220,7 @@ async function openUserModal() {
       show('User settings saved');
       close();
     } catch (err) {
-      alert(err.message);
+      await showForgeOpsError(err);
     }
   });
   setTimeout(() => form.querySelector('input[name="full_name"]')?.focus(), 0);
@@ -1590,7 +1615,14 @@ async function startInvoiceFromQuote(quoteId) {
     const remaining = linkedInvoices.length - numbers.length;
     const references = numbers.length ? ` (${numbers.join(', ')}${remaining > 0 ? `, plus ${remaining} more` : ''})` : '';
     const noun = linkedInvoices.length === 1 ? 'invoice' : 'invoices';
-    if (!confirm(`This quote is already linked to ${linkedInvoices.length} ${noun}${references}. Create another invoice?`)) return;
+    const shouldContinue = await askForgeOpsDialog({
+      title: 'Invoice Already Exists',
+      message: `This Quote is already associated with ${linkedInvoices.length} ${noun}${references}. You can still create another Invoice if needed.`,
+      kind: 'warning',
+      primaryButtonText: 'Create Another Invoice',
+      cancelButtonText: 'Cancel',
+    });
+    if (!shouldContinue) return;
   }
 
   const scopedModalOpen = Boolean(document.querySelector('#clientQuickModal'));
@@ -1620,7 +1652,7 @@ function attachQuoteInvoiceActions(scope=root) {
     button.onclick = event => {
       event.preventDefault();
       event.stopPropagation();
-      startInvoiceFromQuote(Number(button.dataset.quoteId)).catch(err => alert(err.message || 'Unable to start the Invoice.'));
+      startInvoiceFromQuote(Number(button.dataset.quoteId)).catch(err => showForgeOpsError(err, 'Unable to start the Invoice.'));
     };
   });
 }
@@ -1638,7 +1670,11 @@ function printWindow(title, bodyHtml, targetWindow=null) {
   </style></head><body><button id="printBtn" class="no-print" type="button">Print</button>${bodyHtml}</body></html>`;
   const win = targetWindow || window.open('', '_blank', 'width=900,height=1100');
   if (!win) {
-    alert('Popup blocked. Allow popups for ForgeOps to print.');
+    void showForgeOpsNotice({
+      title: 'Popup Blocked',
+      message: 'Allow popups for ForgeOps to print.',
+      kind: 'warning',
+    });
     return;
   }
   win.document.open();
@@ -1660,7 +1696,11 @@ function printWindow(title, bodyHtml, targetWindow=null) {
 function reservePacketPrintWindow() {
   const win = window.open('', '_blank', 'width=900,height=1100');
   if (!win) {
-    alert('Popup blocked. Allow popups for ForgeOps to print.');
+    void showForgeOpsNotice({
+      title: 'Popup Blocked',
+      message: 'Allow popups for ForgeOps to print.',
+      kind: 'warning',
+    });
     return null;
   }
   win.document.open();
@@ -2070,7 +2110,7 @@ function attachPrintActions(scope=root) {
       e.preventDefault();
       e.stopPropagation();
       try { await printRecord(btn.dataset.type, Number(btn.dataset.id)); }
-      catch (err) { alert(err.message || 'Unable to print.'); }
+      catch (err) { await showForgeOpsError(err, 'Unable to print.'); }
     };
   });
 }
@@ -2084,7 +2124,7 @@ function attachRowActions() {
       if (btn.dataset.type === 'quote') state.quoteReturnFocusSelector = `[data-action="edit"][data-type="quote"][data-id="${Number(btn.dataset.id)}"]`;
       if (btn.dataset.type === 'ledger') state.ledgerReturnFocusSelector = `[data-action="edit"][data-type="ledger"][data-id="${Number(btn.dataset.id)}"]`;
       try { await editRecord(btn.dataset.type, Number(btn.dataset.id)); }
-      catch (err) { alert(err.message || 'Unable to open edit form.'); }
+      catch (err) { await showForgeOpsError(err, 'Unable to open edit form.'); }
     };
   });
   root.querySelectorAll('[data-action="delete"]').forEach(btn => {
@@ -2092,7 +2132,7 @@ function attachRowActions() {
       e.preventDefault();
       e.stopPropagation();
       try { await deleteRecord(btn.dataset.type, Number(btn.dataset.id)); }
-      catch (err) { alert(err.message || 'Unable to delete record.'); }
+      catch (err) { await showForgeOpsError(err, 'Unable to delete record.'); }
     };
   });
 }
@@ -2214,7 +2254,15 @@ function attachLaborRowClicks() {
 }
 async function deleteRecord(type, id) {
   const names = {client:'client', project:'project', quote:'quote', invoice:'invoice', ledger:'ledger entry', labor:'labor entry', receipt:'receipt'};
-  if (!confirm(`Delete this ${names[type]}? This cannot be undone.`)) return;
+  const recordName = names[type] || 'record';
+  const shouldDelete = await askForgeOpsDialog({
+    title: `Delete ${recordName}?`,
+    message: `Delete this ${recordName}? This cannot be undone.`,
+    kind: 'destructive',
+    primaryButtonText: 'Delete',
+    cancelButtonText: 'Cancel',
+  });
+  if (!shouldDelete) return;
   try {
     const paths = {client:`/api/clients/${id}`, project:`/api/projects/${id}`, quote:`/api/quotes/${id}`, invoice:`/api/invoices/${id}`, ledger:`/api/ledger/${id}`, labor:`/api/labor/${id}`, receipt:`/api/receipts/${id}`};
     const clientId = state.clientDetailId;
@@ -2232,7 +2280,7 @@ async function deleteRecord(type, id) {
     } else {
       await loadPage(state.page);
     }
-  } catch (err) { alert(err.message); }
+  } catch (err) { await showForgeOpsError(err); }
 }
 async function editRecord(type, id) {
   state.editing = { type, id };
@@ -2329,7 +2377,7 @@ function openScopedActionSheet({eyebrow='Add to record', title, subtitle='', act
     button.onclick = () => {
       const action = actions[Number(button.dataset.scopedAction)];
       close();
-      Promise.resolve(action.run()).catch(err => alert(err.message || 'Unable to open that form.'));
+      Promise.resolve(action.run()).catch(err => showForgeOpsError(err, 'Unable to open that form.'));
     };
   });
   document.addEventListener('keydown', onKeydown);
@@ -2832,7 +2880,7 @@ async function renderQuotes(editId=null) {
       const result = await persistQuoteEditor(form, root, editing);
       if (!result) return;
       show(editing ? 'Quote updated' : 'Quote saved'); await preloadLookups(); await renderQuotes();
-    } catch (err) { alert(err.message); }
+    } catch (err) { await showForgeOpsError(err); }
   };
   setupQuoteModal({editing, rerender:renderQuotes});
   attachQuoteSearch(visibleQuotes.length);
@@ -2893,7 +2941,7 @@ async function renderInvoices(editId=null, handoff={}) {
   root.querySelector('#resetInvoiceFilters').onclick = resetFilters;
   root.querySelectorAll('[data-reset-invoice-filters]').forEach(button => { button.onclick = resetFilters; });
   root.querySelector('#emptyAddInvoice')?.addEventListener('click', () => root.querySelector('#openInvoiceModal')?.click());
-  await wireInvoiceInternalForm(root, {formId:'invoiceForm', clientSelectId:'invoiceClient', projectSelectId:'invoiceProject', quoteSelectId:'invoiceQuote', editing, onSave: async payload => { try { if (editing) await api(`/api/invoices/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/invoices', {method:'POST', body: JSON.stringify(payload)}); show(editing ? 'Invoice updated' : 'Invoice saved'); await preloadLookups(); await renderInvoices(); } catch (err) { alert(err.message); } }});
+  await wireInvoiceInternalForm(root, {formId:'invoiceForm', clientSelectId:'invoiceClient', projectSelectId:'invoiceProject', quoteSelectId:'invoiceQuote', editing, onSave: async payload => { try { if (editing) await api(`/api/invoices/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/invoices', {method:'POST', body: JSON.stringify(payload)}); show(editing ? 'Invoice updated' : 'Invoice saved'); await preloadLookups(); await renderInvoices(); } catch (err) { await showForgeOpsError(err); } }});
   setupInvoiceModal({editing, autoOpen:Boolean(handoff.autoOpen), rerender:renderInvoices});
   attachInvoiceSearch(visibleInvoices.length);
   attachRowActions();
@@ -3129,7 +3177,7 @@ async function renderLedger(editId=null) {
       await saveLedgerEntryWithReceipt(form, payload, editing);
       show(editing ? 'Ledger entry updated' : 'Ledger entry saved');
       await root.querySelector('#ledgerModal')._closeLedgerEditor();
-    } catch (err) { alert(err.message); }
+    } catch (err) { await showForgeOpsError(err); }
   }});
   setupLedgerModal({editing, rerender: renderLedger});
   root.querySelector('#emptyAddLedger')?.addEventListener('click', () => root.querySelector('#openLedgerModal')?.click());
@@ -3368,7 +3416,7 @@ async function renderLabor(editId=null) {
       else await api('/api/labor', {method:'POST', body: JSON.stringify(payload)});
       show(editing ? 'Labor entry updated' : 'Labor entry saved');
       await root.querySelector('#laborModal')._closeLaborEditor();
-    } catch (err) { alert(err.message); }
+    } catch (err) { await showForgeOpsError(err); }
   }});
   setupLaborModal({editing, rerender: renderLabor});
   root.querySelector('#emptyAddLabor')?.addEventListener('click', () => root.querySelector('#openLaborModal')?.click());
@@ -3389,10 +3437,10 @@ async function renderReceipts(editId=null) {
     <label class="full">Notes<textarea name="notes">${escapeHtml(editing.notes)}</textarea></label><div class="form-actions"><button class="primary" type="submit">Update Receipt</button><button class="ghost" type="button" id="cancelEdit">Cancel</button>${receiptPreviewButton(editing.id, 'Preview File')}</div>
   </form></div>` : ''}
   ${table(['File','Vendor','Date','Amount','Status','Linked','Open','Actions'], data.items.map(r => [escapeHtml(r.original_filename),escapeHtml(r.vendor_name),r.receipt_date,money(r.total_amount),`<span class="status">${statusLabel(r.status)}</span>`,r.linked_type?`${escapeHtml(r.linked_type)} #${r.linked_id||''}`:'Unassigned',receiptPreviewButton(r.id),rowActions('receipt', r.id)]))}`;
-  receiptUploadForm.onsubmit = async e => { e.preventDefault(); const fd = new FormData(receiptUploadForm); try { await api('/api/receipts', {method:'POST', body:fd}); show('Receipt uploaded'); await renderReceipts(); } catch (err) { alert(err.message); } };
+  receiptUploadForm.onsubmit = async e => { e.preventDefault(); const fd = new FormData(receiptUploadForm); try { await api('/api/receipts', {method:'POST', body:fd}); show('Receipt uploaded'); await renderReceipts(); } catch (err) { await showForgeOpsError(err); } };
   if (editing) {
     receiptEditForm.status.value = editing.status || 'needs_review'; receiptEditForm.linked_type.value = editing.linked_type || '';
-    receiptEditForm.onsubmit = async e => { e.preventDefault(); const payload = clean(formData(receiptEditForm)); numOrDelete(payload, 'linked_id'); if (payload.total_amount) payload.total_amount = Number(payload.total_amount); if (payload.tax_amount) payload.tax_amount = Number(payload.tax_amount); try { await api(`/api/receipts/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); show('Receipt updated'); await renderReceipts(); } catch (err) { alert(err.message); } };
+    receiptEditForm.onsubmit = async e => { e.preventDefault(); const payload = clean(formData(receiptEditForm)); numOrDelete(payload, 'linked_id'); if (payload.total_amount) payload.total_amount = Number(payload.total_amount); if (payload.tax_amount) payload.tax_amount = Number(payload.tax_amount); try { await api(`/api/receipts/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); show('Receipt updated'); await renderReceipts(); } catch (err) { await showForgeOpsError(err); } };
     cancelEdit.onclick = () => renderReceipts();
   }
   attachPageSearch('receiptSearch');
@@ -3502,7 +3550,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
         if (isEdit) await api(`/api/projects/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)});
         else await api('/api/projects', {method:'POST', body: JSON.stringify(payload)});
         await closeAfter('projects', isEdit ? 'Project updated' : 'Project saved');
-      } catch(err) { alert(err.message); }
+      } catch(err) { await showForgeOpsError(err); }
     };
   }
 
@@ -3531,7 +3579,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
         const result = await persistQuoteEditor(form, wrapper, editing, clientId);
         if (!result) return;
         await closeAfter('quotes', isEdit ? 'Quote updated' : 'Quote saved');
-      } catch(err) { alert(err.message); }
+      } catch(err) { await showForgeOpsError(err); }
     };
   }
 
@@ -3549,7 +3597,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
     setInvoiceEditorPageState(true);
     wrapper._invoiceEscapeHandler = event => { if (event.key === 'Escape') closeClientQuickModal(); };
     document.addEventListener('keydown', wrapper._invoiceEscapeHandler);
-    await wireInvoiceInternalForm(wrapper, {formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote', editing, scopedClientId: clientId, onSave: async payload => { try { if (isEdit) await api(`/api/invoices/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/invoices', {method:'POST', body: JSON.stringify(payload)}); await closeAfter('invoices', isEdit ? 'Invoice updated' : 'Invoice saved'); } catch(err) { alert(err.message); } }});
+    await wireInvoiceInternalForm(wrapper, {formId:'clientInvoiceForm', projectSelectId:'clientInvoiceProject', quoteSelectId:'clientInvoiceQuote', editing, scopedClientId: clientId, onSave: async payload => { try { if (isEdit) await api(`/api/invoices/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)}); else await api('/api/invoices', {method:'POST', body: JSON.stringify(payload)}); await closeAfter('invoices', isEdit ? 'Invoice updated' : 'Invoice saved'); } catch(err) { await showForgeOpsError(err); } }});
   }
 
   if (type === 'labor') {
@@ -3569,7 +3617,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
         if (isEdit) await api(`/api/labor/${editing.id}`, {method:'PATCH', body: JSON.stringify(payload)});
         else await api('/api/labor', {method:'POST', body: JSON.stringify(payload)});
         await closeAfter('labor', isEdit ? 'Labor entry updated' : 'Labor entry saved');
-      } catch(err) { alert(err.message); }
+      } catch(err) { await showForgeOpsError(err); }
     }});
   }
 
@@ -3587,7 +3635,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
       try {
         await saveLedgerEntryWithReceipt(form, payload, isEdit ? editing : null);
         await closeAfter('ledger', isEdit ? 'Ledger entry updated' : 'Ledger entry saved');
-      } catch(err) { alert(err.message); }
+      } catch(err) { await showForgeOpsError(err); }
     }});
   }
 
@@ -3627,7 +3675,7 @@ async function openClientQuickModal(clientId, type, editId=null, opts={}) {
         if (metadata.tax_amount) payload.tax_amount = Number(metadata.tax_amount);
         await api(`/api/receipts/${created.id}`, {method:'PATCH', body: JSON.stringify(payload)});
         await closeAfter('receipts', 'Receipt uploaded');
-      } catch(err) { alert(err.message); }
+      } catch(err) { await showForgeOpsError(err); }
     };
   }
 
@@ -3734,13 +3782,13 @@ function attachDashboardActions() {
     const open = () => openDashboardRecord(row.dataset.dashboardType, Number(row.dataset.dashboardId));
     row.addEventListener('click', event => {
       if (event.target.closest('button, a, input, select, textarea')) return;
-      open().catch(err => alert(err.message || 'Unable to open record.'));
+      open().catch(err => showForgeOpsError(err, 'Unable to open record.'));
     });
     row.addEventListener('keydown', event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       if (event.target.closest('button, a, input, select, textarea')) return;
       event.preventDefault();
-      open().catch(err => alert(err.message || 'Unable to open record.'));
+      open().catch(err => showForgeOpsError(err, 'Unable to open record.'));
     });
   });
 }
@@ -4189,7 +4237,15 @@ async function renderAdmin() {
   }));
   root.querySelectorAll('[data-terms-action="delete"]').forEach(button => button.addEventListener('click', async () => {
     const template = termsTemplates.find(item => Number(item.id) === Number(button.dataset.id));
-    if (!template || !confirm(`Delete saved terms "${template.name}"? Existing Quote and Invoice text will not change.`)) return;
+    if (!template) return;
+    const shouldDelete = await askForgeOpsDialog({
+      title: 'Delete Saved Terms?',
+      message: `Delete saved terms "${template.name}"? Existing Quote and Invoice text will not change.`,
+      kind: 'destructive',
+      primaryButtonText: 'Delete Saved Terms',
+      cancelButtonText: 'Cancel',
+    });
+    if (!shouldDelete) return;
     button.disabled = true;
     try {
       await api(`/api/terms/${template.id}`, {method:'DELETE'});
@@ -4258,7 +4314,14 @@ async function renderAdmin() {
       restoreButton.disabled = true;
       return;
     }
-    if (!confirm(`Restore ${file.name}? This replaces current application data. A pre-restore backup will be created first.`)) return;
+    const shouldRestore = await askForgeOpsDialog({
+      title: 'Restore Checked Backup?',
+      message: `Restore ${file.name}? This replaces current application data. A pre-restore backup will be created first.`,
+      kind: 'destructive',
+      primaryButtonText: 'Restore Backup',
+      cancelButtonText: 'Cancel',
+    });
+    if (!shouldRestore) return;
     const restorePayload = new FormData(restoreForm);
     restoreButton.disabled = true;
     validateRestoreButton.disabled = true;
@@ -4314,7 +4377,14 @@ async function renderAdmin() {
     }
   }));
   root.querySelectorAll('[data-dd-action="delete"]').forEach(button => button.addEventListener('click', async () => {
-    if (!confirm('Delete this dropdown option? Existing records keep their current text, but new forms will no longer show it.')) return;
+    const shouldDelete = await askForgeOpsDialog({
+      title: 'Delete Dropdown Option?',
+      message: 'Delete this dropdown option? Existing records keep their current text, but new forms will no longer show it.',
+      kind: 'destructive',
+      primaryButtonText: 'Delete Option',
+      cancelButtonText: 'Cancel',
+    });
+    if (!shouldDelete) return;
     button.disabled = true;
     try {
       await api(`/api/admin/dropdowns/${button.dataset.id}`, {method:'DELETE'});
@@ -4347,18 +4417,18 @@ document.querySelectorAll('[data-close-shell]').forEach(control => {
 });
 document.querySelectorAll('[data-theme-toggle]').forEach(control => control.addEventListener('click', toggleTheme));
 document.querySelectorAll('[data-quick-create]').forEach(control => {
-  control.addEventListener('click', () => runQuickCreate(control.dataset.quickCreate).catch(err => alert(err.message)));
+  control.addEventListener('click', () => runQuickCreate(control.dataset.quickCreate).catch(err => showForgeOpsError(err)));
 });
 document.addEventListener('click', event => {
   const btn = event.target.closest('[data-action="preview-receipt"]');
   if (!btn) return;
   event.preventDefault();
   event.stopPropagation();
-  openReceiptPreviewModal(Number(btn.dataset.id)).catch(err => alert(err.message || 'Unable to preview receipt.'));
+  openReceiptPreviewModal(Number(btn.dataset.id)).catch(err => showForgeOpsError(err, 'Unable to preview receipt.'));
 });
 document.addEventListener('keydown', trapShellDialogFocus);
 document.querySelectorAll('.nav[data-page]').forEach(button => {
-  button.addEventListener('click', () => navigateFromNavigation(button.dataset.page).catch(err => alert(err.message)));
+  button.addEventListener('click', () => navigateFromNavigation(button.dataset.page).catch(err => showForgeOpsError(err)));
 });
 applyTheme(document.documentElement.dataset.theme);
 registerServiceWorker();

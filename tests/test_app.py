@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-vendor-fees-terms" in html
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
     assert "/static/phase3-quotes.css?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-vendor-fees-terms" in html
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
@@ -243,7 +243,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     for marker in [
         'data-action="create-invoice-from-quote"',
         "startInvoiceFromQuote",
-        "Create another invoice?",
+        "Invoice Already Exists",
+        "Create Another Invoice",
         "scopedQuoteId",
         "returnToProject",
         "returnToDashboard",
@@ -288,10 +289,10 @@ def test_frontend_phase_5_labor_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in html
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in service_worker
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
 
     for marker in [
         "Search Labor",
@@ -350,10 +351,10 @@ def test_frontend_phase_6_ledger_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in html
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in service_worker
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
 
     for marker in [
         "Search Ledger",
@@ -419,10 +420,10 @@ def test_frontend_phase_7_reports_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in html
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in service_worker
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
 
     for marker in [
         "function reportMetricHtml",
@@ -476,10 +477,10 @@ def test_frontend_phase_8_settings_backup_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase8-settings.css?v=0.8.12-vendor-fees-terms" in html
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
     assert "/static/phase8-settings.css?v=0.8.12-vendor-fees-terms" in service_worker
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in service_worker
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in html
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in service_worker
 

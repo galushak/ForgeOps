@@ -15,6 +15,7 @@ from app.models import Project
 STATIC_DIR = Path(__file__).resolve().parents[1] / "app" / "static"
 JAVASCRIPT_PATH = STATIC_DIR / "js" / "app.js"
 RENDERERS_PATH = STATIC_DIR / "js" / "packet-renderers.js"
+DIALOG_PATH = STATIC_DIR / "js" / "app-dialog.js"
 
 
 def test_packet_frontend_actions_print_reuse_and_pwa_characterization():
@@ -24,9 +25,9 @@ def test_packet_frontend_actions_print_reuse_and_pwa_characterization():
     packet_css = (STATIC_DIR / "forgeops-packets.css").read_text(encoding="utf-8")
     service_worker = (STATIC_DIR / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/js/app.js?v=0.8.12-vendor-fees-terms" in html
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
     assert "/static/forgeops-packets.css?v=0.8.12-print-packets" in html
-    assert "forgeops-v2-vendor-fees-terms-v1" in service_worker
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
     assert "/static/js/packet-renderers.js?v=0.8.12-print-packets" in service_worker
     assert "./packet-renderers.js?v=0.8.12-print-packets" in javascript
 
@@ -301,3 +302,59 @@ def test_pure_document_math_vendor_fee_examples():
     result = subprocess.run([node, str(script)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert "quote and invoice vendor fee calculations passed" in result.stdout
+
+
+def test_app_dialog_state_and_frontend_characterization():
+    node = os.environ.get("NODE_BINARY") or shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is not available for the app dialog test")
+    script = Path(__file__).with_name("app_dialog_test.mjs")
+    result = subprocess.run([node, str(script)], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "app dialog state tests passed" in result.stdout
+
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    javascript = JAVASCRIPT_PATH.read_text(encoding="utf-8")
+    dialog_javascript = DIALOG_PATH.read_text(encoding="utf-8")
+    dialog_css = (STATIC_DIR / "app-dialog.css").read_text(encoding="utf-8")
+    service_worker = (STATIC_DIR / "service-worker.js").read_text(encoding="utf-8")
+
+    for native_call in ["confirm(", "window.confirm(", "alert(", "window.alert(", "prompt(", "window.prompt("]:
+        assert native_call not in javascript
+    assert "Invoice Already Exists" in javascript
+    assert "Create Another Invoice" in javascript
+    assert "askForgeOpsDialog" in javascript
+    assert "kind: 'destructive'" in javascript
+    assert "createForgeOpsDialogController" in javascript
+    assert "createDialogSettlement" in dialog_javascript
+    assert "aria-modal" in dialog_javascript
+    assert "aria-labelledby" in dialog_javascript
+    assert "aria-describedby" in dialog_javascript
+    assert "event.key === 'Escape'" in dialog_javascript
+    assert "event.key !== 'Tab'" in dialog_javascript
+    assert "event.stopImmediatePropagation()" in dialog_javascript
+    assert "element.setAttribute('inert', '')" in dialog_javascript
+    assert "element.removeAttribute('inert')" in dialog_javascript
+    assert "opener.focus()" in dialog_javascript
+    assert "primaryButton.disabled = true" in dialog_javascript
+    assert "const cancel = () => settle(false)" in dialog_javascript
+    assert "primaryButton.addEventListener('click', () => settle(true))" in dialog_javascript
+    assert "@media (max-width: 420px)" in dialog_css
+    assert "/static/app-dialog.css?v=0.8.12-app-dialogs" in html
+    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app-dialog.js?v=0.8.12-app-dialogs" in service_worker
+
+    duplicate_invoice_flow = javascript[
+        javascript.index("async function startInvoiceFromQuote") : javascript.index(
+            "function attachQuoteInvoiceActions"
+        )
+    ]
+    assert duplicate_invoice_flow.index("if (!shouldContinue) return") < duplicate_invoice_flow.index(
+        "openClientQuickModal"
+    )
+
+    delete_flow = javascript[
+        javascript.index("async function deleteRecord") : javascript.index("async function editRecord")
+    ]
+    assert delete_flow.index("if (!shouldDelete) return") < delete_flow.index("await api(paths[type]")
