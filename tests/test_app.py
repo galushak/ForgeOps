@@ -64,8 +64,8 @@ def test_frontend_phase_2_home_clients_projects_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase2.css?v=0.8.12-phase2-polish" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "async function renderProjectDetail" in javascript
     assert "async function renderClientDetail" in javascript
     assert "Needs Attention" in javascript
@@ -99,7 +99,7 @@ def test_frontend_phase_3_quote_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase3-quotes.css?v=0.8.12-vendor-fees-terms" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
     assert "/static/phase3-quotes.css?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
@@ -193,8 +193,8 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase4-invoices.css?v=0.8.12-vendor-fees-terms" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "/static/phase4-invoices.css?v=0.8.12-vendor-fees-terms" in service_worker
 
     for marker in [
@@ -240,6 +240,9 @@ def test_frontend_phase_4_invoice_workflow_characterization():
     assert "addCredit.onclick" in line_wiring
     assert "{ once: true }" not in line_wiring
 
+    quote_invoice_workflow_javascript = javascript + (static_dir / "js" / "quote-invoice-flow.js").read_text(
+        encoding="utf-8"
+    )
     for marker in [
         'data-action="create-invoice-from-quote"',
         "startInvoiceFromQuote",
@@ -257,7 +260,7 @@ def test_frontend_phase_4_invoice_workflow_characterization():
         "mobileNavigation.inert = active",
         "mobileNavigation.setAttribute('aria-hidden', 'true')",
     ]:
-        assert marker in javascript
+        assert marker in quote_invoice_workflow_javascript
 
     for marker in [
         ".invoice-desktop-list",
@@ -289,10 +292,10 @@ def test_frontend_phase_5_labor_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "/static/phase5-labor.css?v=0.8.12-phase5-labor-final" in service_worker
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in service_worker
 
     for marker in [
         "Search Labor",
@@ -351,10 +354,10 @@ def test_frontend_phase_6_ledger_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "/static/phase6-ledger.css?v=0.8.12-sales-tax-period-controls" in service_worker
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in service_worker
 
     for marker in [
         "Search Ledger",
@@ -420,10 +423,10 @@ def test_frontend_phase_7_reports_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "/static/phase7-reports.css?v=0.8.12-phase7-reports" in service_worker
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in service_worker
 
     for marker in [
         "function reportMetricHtml",
@@ -477,10 +480,10 @@ def test_frontend_phase_8_settings_backup_workflow_characterization():
     service_worker = (static_dir / "service-worker.js").read_text(encoding="utf-8")
 
     assert "/static/phase8-settings.css?v=0.8.12-vendor-fees-terms" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "/static/phase8-settings.css?v=0.8.12-vendor-fees-terms" in service_worker
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in service_worker
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in html
     assert "/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final" in service_worker
 
@@ -1364,6 +1367,17 @@ def test_invoice_phase4_characterizes_legacy_totals_status_and_quote_links(authe
     assert second.status_code == 201
     assert second.json()["quote_id"] == quote_id
     assert authed.get("/api/invoices", params={"project_id": project_id}).json()["meta"]["total"] == 2
+    first_linked_page = authed.get("/api/invoices", params={"quote_id": quote_id, "page_size": 1}).json()
+    second_linked_page = authed.get(
+        "/api/invoices", params={"quote_id": quote_id, "page_size": 1, "page": 2}
+    ).json()
+    assert first_linked_page["meta"]["total"] == 2
+    assert second_linked_page["meta"]["total"] == 2
+    assert {first_linked_page["items"][0]["id"], second_linked_page["items"][0]["id"]} == {
+        first_json["id"],
+        second.json()["id"],
+    }
+    assert authed.get("/api/invoices", params={"quote_id": 999999}).json()["meta"]["total"] == 0
     assert authed.delete(f"/api/quotes/{quote_id}").status_code == 400
 
     assert authed.delete(f"/api/invoices/{first_json['id']}").status_code == 200

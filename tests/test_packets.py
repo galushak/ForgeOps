@@ -16,6 +16,7 @@ STATIC_DIR = Path(__file__).resolve().parents[1] / "app" / "static"
 JAVASCRIPT_PATH = STATIC_DIR / "js" / "app.js"
 RENDERERS_PATH = STATIC_DIR / "js" / "packet-renderers.js"
 DIALOG_PATH = STATIC_DIR / "js" / "app-dialog.js"
+QUOTE_INVOICE_FLOW_PATH = STATIC_DIR / "js" / "quote-invoice-flow.js"
 
 
 def test_packet_frontend_actions_print_reuse_and_pwa_characterization():
@@ -25,9 +26,9 @@ def test_packet_frontend_actions_print_reuse_and_pwa_characterization():
     packet_css = (STATIC_DIR / "forgeops-packets.css").read_text(encoding="utf-8")
     service_worker = (STATIC_DIR / "service-worker.js").read_text(encoding="utf-8")
 
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
     assert "/static/forgeops-packets.css?v=0.8.12-print-packets" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "/static/js/packet-renderers.js?v=0.8.12-print-packets" in service_worker
     assert "./packet-renderers.js?v=0.8.12-print-packets" in javascript
 
@@ -316,13 +317,14 @@ def test_app_dialog_state_and_frontend_characterization():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     javascript = JAVASCRIPT_PATH.read_text(encoding="utf-8")
     dialog_javascript = DIALOG_PATH.read_text(encoding="utf-8")
+    decision_javascript = QUOTE_INVOICE_FLOW_PATH.read_text(encoding="utf-8")
     dialog_css = (STATIC_DIR / "app-dialog.css").read_text(encoding="utf-8")
     service_worker = (STATIC_DIR / "service-worker.js").read_text(encoding="utf-8")
 
     for native_call in ["confirm(", "window.confirm(", "alert(", "window.alert(", "prompt(", "window.prompt("]:
         assert native_call not in javascript
-    assert "Invoice Already Exists" in javascript
-    assert "Create Another Invoice" in javascript
+    assert "Invoice Already Exists" in decision_javascript
+    assert "Create Another Invoice" in decision_javascript
     assert "askForgeOpsDialog" in javascript
     assert "kind: 'destructive'" in javascript
     assert "createForgeOpsDialogController" in javascript
@@ -341,18 +343,33 @@ def test_app_dialog_state_and_frontend_characterization():
     assert "primaryButton.addEventListener('click', () => settle(true))" in dialog_javascript
     assert "@media (max-width: 420px)" in dialog_css
     assert "/static/app-dialog.css?v=0.8.12-app-dialogs" in html
-    assert "/static/js/app.js?v=0.8.12-app-dialogs" in html
-    assert "forgeops-v2-app-dialogs-v1" in service_worker
+    assert "/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation" in html
+    assert "forgeops-v2-duplicate-invoice-confirmation-v1" in service_worker
     assert "/static/js/app-dialog.js?v=0.8.12-app-dialogs" in service_worker
+    assert "/static/js/quote-invoice-flow.js?v=0.8.12-duplicate-invoice-confirmation" in service_worker
+
+
+def test_quote_invoice_duplicate_decision_flow():
+    node = os.environ.get("NODE_BINARY") or shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is unavailable for the Quote Invoice decision regression")
+    script = Path(__file__).with_name("quote_invoice_flow_test.mjs")
+    result = subprocess.run([node, str(script)], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "quote invoice duplicate decision tests passed" in result.stdout
+
+    javascript = JAVASCRIPT_PATH.read_text(encoding="utf-8")
+    decision_javascript = QUOTE_INVOICE_FLOW_PATH.read_text(encoding="utf-8")
+    assert "fetchAllPages(`/api/invoices?quote_id=${id}`)" in javascript
+    assert "await confirmDuplicate" in decision_javascript
+    assert "openEditor(context)" in decision_javascript
 
     duplicate_invoice_flow = javascript[
         javascript.index("async function startInvoiceFromQuote") : javascript.index(
             "function attachQuoteInvoiceActions"
         )
     ]
-    assert duplicate_invoice_flow.index("if (!shouldContinue) return") < duplicate_invoice_flow.index(
-        "openClientQuickModal"
-    )
+    assert duplicate_invoice_flow.index("loadLinkedInvoices") < duplicate_invoice_flow.index("openEditor")
 
     delete_flow = javascript[
         javascript.index("async function deleteRecord") : javascript.index("async function editRecord")

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'forgeops-v2-app-dialogs-v1';
+const CACHE_NAME = 'forgeops-v2-duplicate-invoice-confirmation-v1';
 const APP_SHELL = [
   '/',
   '/static/styles.css?v=0.8.12-phase2',
@@ -13,8 +13,9 @@ const APP_SHELL = [
   '/static/phase8-settings.css?v=0.8.12-vendor-fees-terms',
   '/static/forgeopsv2-final.css?v=0.8.12-forgeopsv2-final',
   '/static/forgeops-packets.css?v=0.8.12-print-packets',
-  '/static/js/app.js?v=0.8.12-app-dialogs',
+  '/static/js/app.js?v=0.8.12-duplicate-invoice-confirmation',
   '/static/js/app-dialog.js?v=0.8.12-app-dialogs',
+  '/static/js/quote-invoice-flow.js?v=0.8.12-duplicate-invoice-confirmation',
   '/static/js/document-math.js?v=0.8.12-vendor-fees-terms',
   '/static/js/packet-renderers.js?v=0.8.12-print-packets',
   '/static/manifest.webmanifest',

@@ -180,11 +180,17 @@ def list_invoices(
     page_size: int = Query(25, ge=1, le=100),
     client_id: int | None = None,
     project_id: int | None = None,
+    quote_id: int | None = None,
     status_filter: InvoiceStatus | None = Query(default=None, alias="status"),
 ) -> dict:
     stmt = select(Invoice)
     count_stmt = select(func.count(Invoice.id))
-    filters = [(Invoice.client_id, client_id), (Invoice.project_id, project_id), (Invoice.status, status_filter)]
+    filters = [
+        (Invoice.client_id, client_id),
+        (Invoice.project_id, project_id),
+        (Invoice.quote_id, quote_id),
+        (Invoice.status, status_filter),
+    ]
     for field, value in filters:
         if value is not None:
             stmt = stmt.where(field == value)

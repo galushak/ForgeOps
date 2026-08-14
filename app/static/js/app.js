@@ -1,6 +1,7 @@
 import { clientAdminPacketHtml, projectAdminGroupHtml, projectClientPacketHtml } from './packet-renderers.js?v=0.8.12-print-packets';
 import { calculateInvoiceTotals, calculateQuoteDraftTotals, calculateQuoteTotals, isQuoteMarkupItem, QUOTE_MARKUP_NAME, quoteVendorFeeItems } from './document-math.js?v=0.8.12-vendor-fees-terms';
 import { createForgeOpsDialogController } from './app-dialog.js?v=0.8.12-app-dialogs';
+import { startQuoteInvoiceDecision } from './quote-invoice-flow.js?v=0.8.12-duplicate-invoice-confirmation';
 
 const state = { page: 'dashboard', clients: [], projects: [], quotes: [], invoices: [], termsTemplates: [], addressesByClient: {}, dropdowns: { ledger_category: [], service_type: [] }, salesTaxPeriods: [], editing: null, clientDetailTab: 'overview', clientDetailId: null, clientStatusFilter: 'all', projectDetailTab: 'overview', projectDetailId: null, projectStatusFilter: 'all', projectClientFilter: 'all', quoteStatusFilter: 'all', quoteClientFilter: 'all', quoteReturnFocusSelector: '', invoiceStatusFilter: 'all', invoiceClientFilter: 'all', invoiceReturnFocusSelector: '', laborStatusFilter: 'all', laborClientFilter: 'all', laborProjectFilter: 'all', laborBillingFilter: 'all', laborReturnFocusSelector: '', ledgerKindFilter: 'all', ledgerCategoryFilter: 'all', ledgerClientFilter: 'all', ledgerYearFilter: 'all', ledgerReturnFocusSelector: '', reportMode: 'year', reportYear: '', reportMonth: '', reportQuarter: '1', reportStart: '', reportEnd: '', user: null, lookupCacheAt: 0, lookupCachePromise: null };
 const root = document.querySelector('#pageRoot');
@@ -1609,42 +1610,33 @@ async function startInvoiceFromQuote(quoteId) {
   await preloadLookups(true);
   const quote = state.quotes.find(item => Number(item.id) === Number(quoteId));
   if (!quote) throw new Error('Could not find that Quote. Refresh and try again.');
-  const linkedInvoices = state.invoices.filter(invoice => Number(invoice.quote_id) === Number(quoteId));
-  if (linkedInvoices.length) {
-    const numbers = linkedInvoices.slice(0, 4).map(invoice => invoice.invoice_number).filter(Boolean);
-    const remaining = linkedInvoices.length - numbers.length;
-    const references = numbers.length ? ` (${numbers.join(', ')}${remaining > 0 ? `, plus ${remaining} more` : ''})` : '';
-    const noun = linkedInvoices.length === 1 ? 'invoice' : 'invoices';
-    const shouldContinue = await askForgeOpsDialog({
-      title: 'Invoice Already Exists',
-      message: `This Quote is already associated with ${linkedInvoices.length} ${noun}${references}. You can still create another Invoice if needed.`,
-      kind: 'warning',
-      primaryButtonText: 'Create Another Invoice',
-      cancelButtonText: 'Cancel',
-    });
-    if (!shouldContinue) return;
-  }
+  return startQuoteInvoiceDecision({
+    quote,
+    loadLinkedInvoices: id => fetchAllPages(`/api/invoices?quote_id=${id}`),
+    confirmDuplicate: options => askForgeOpsDialog(options),
+    openEditor: async ({clientId, projectId, quoteId: relatedQuoteId}) => {
+      const scopedModalOpen = Boolean(document.querySelector('#clientQuickModal'));
+      if (scopedModalOpen || state.clientDetailId || state.projectDetailId || state.page === 'dashboard') {
+        await openClientQuickModal(clientId, 'invoices', null, {
+          projectId,
+          quoteId: relatedQuoteId,
+          returnToProject: Boolean(state.projectDetailId),
+          returnToDashboard: state.page === 'dashboard',
+        });
+        return;
+      }
 
-  const scopedModalOpen = Boolean(document.querySelector('#clientQuickModal'));
-  if (scopedModalOpen || state.clientDetailId || state.projectDetailId || state.page === 'dashboard') {
-    await openClientQuickModal(Number(quote.client_id), 'invoices', null, {
-      projectId: quote.project_id || null,
-      quoteId: quote.id,
-      returnToProject: Boolean(state.projectDetailId),
-      returnToDashboard: state.page === 'dashboard',
-    });
-    return;
-  }
-
-  state.page = 'invoices';
-  state.editing = null;
-  state.clientDetailId = null;
-  state.projectDetailId = null;
-  updateActiveNavigation('invoices');
-  document.querySelector('#pageTitle').textContent = titles.invoices[0];
-  document.querySelector('#pageSubtitle').textContent = titles.invoices[1];
-  document.querySelector('#mobilePageTitle').textContent = titles.invoices[0];
-  await renderInvoices(null, {clientId: quote.client_id, projectId: quote.project_id, quoteId: quote.id, autoOpen: true});
+      state.page = 'invoices';
+      state.editing = null;
+      state.clientDetailId = null;
+      state.projectDetailId = null;
+      updateActiveNavigation('invoices');
+      document.querySelector('#pageTitle').textContent = titles.invoices[0];
+      document.querySelector('#pageSubtitle').textContent = titles.invoices[1];
+      document.querySelector('#mobilePageTitle').textContent = titles.invoices[0];
+      await renderInvoices(null, {clientId, projectId, quoteId: relatedQuoteId, autoOpen: true});
+    },
+  });
 }
 
 function attachQuoteInvoiceActions(scope=root) {
